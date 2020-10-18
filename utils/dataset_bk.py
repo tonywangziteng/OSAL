@@ -14,7 +14,8 @@ import pdb
 class OsalDataset(Dataset):
     r"""  
     Arguments
-        :cfg: json config
+        :data_dir: full path of the dataset 
+        :anno_path: full path of the annotation file
         :mode: 'training', 'validation', 'testing' | decide what the dataset is used for
 
     create the dataset for train, evaluation, and test.
@@ -22,16 +23,9 @@ class OsalDataset(Dataset):
     """
     def __init__(
         self, 
-        cfg, 
+        data_dir:str, anno_path:str, video_info_path:str, action_name_path:str, 
         mode='training'
     ):
-        data_dir = cfg['data_dir']
-        anno_path = cfg['anno_path'] 
-        video_info_path = cfg['video_info_path'] 
-        action_name_path = cfg['action_name_path']
-        self.perceptive_fields = np.array(cfg['perceptive_fields'])/100. 
-        self.perceptive_fields[-1] = 1.
-
         assert mode in ['training', 'validation', 'testing'], 'the mode should be training, validation or testing, instead of {}'.format(mode)
         self.mode = mode
         self.data_dir = data_dir
@@ -63,7 +57,7 @@ class OsalDataset(Dataset):
         """
         video_info = self.annotations[video_name]
         video_anno = video_info['annotations']
-        # pdb.set_trace()
+        pdb.set_trace()
 
         # calculate the basic length information about the video
         video_real_frame = video_info['duration_frame']
@@ -71,13 +65,8 @@ class OsalDataset(Dataset):
         video_feature_frame = video_info['feature_frame']
         video_feature_second = float(video_feature_frame) / video_real_frame * video_real_second
 
-        # initialize cls_list
-        cls_gt = []
+        cls_gt = np.zeros((100, 201)) # first 200 dims are classes, the last one is background dim
         boundary_list = []
-        feature_lens = [50, 25, 13, 7, 4]
-        for length in feature_lens:
-            cls_gt.append(np.zeros((length, 201)))
-
         for anno in video_anno:
             action_name = anno['label']
             name_index = self.action_name.index(action_name)
@@ -85,28 +74,12 @@ class OsalDataset(Dataset):
             start_idx = int(start_time * 100) 
             end_time = max((min(1, anno['segment'][1]/video_feature_second)), 0)
             end_idx = int(end_time * 100)
-            
-            # get layer number and 
-            layer_idx = self.allocate_layer(start_time, end_time)
-            start_idx = start_idx//2**(layer_idx+1) + start_idx//2**(layer_idx)%2
-            end_idx = end_idx//2**(layer_idx+1) + end_idx//2**(layer_idx)%2
 
-            cls_gt[layer_idx][start_idx:end_idx, name_index] = 1
-            cls_gt[layer_idx][start_idx:end_idx, 200] = 1
+            cls_gt[start_idx:end_idx, name_index] = 1
+            cls_gt[start_idx:end_idx, 200] = 1
             boundary_list.append((start_time, end_time))
         
         return cls_gt, boundary_list
-
-    def allocate_layer(self, start_time, end_time):
-        """
-        Get to know which layer the annotation belongs to 
-        """
-        duration = end_time - start_time
-        i = 0
-        for i in range(len(self.perceptive_fields)):
-            if duration < self.perceptive_fields[i]:
-                return i
-        return i
 
     def __getitem__(self, index):
         video_name = self.video_name_list[index]
@@ -126,23 +99,15 @@ def collate_function(batch):
     feature_list, cls_gt_list, duration_list = [], [], []
     for idx, element in enumerate(batch):
         feature_list.append(torch.Tensor(element[0]))
-        # concat cls_gt
-        for cls_idx, cls_gt in enumerate(element[1]):
-            if idx == 0:
-                cls_gt_list.append([torch.Tensor(cls_gt)])
-            else:
-                cls_gt_list[cls_idx].append(torch.Tensor(cls_gt))
+        cls_gt_list.append(torch.Tensor(element[1]))
         duration_list.append(element[2])
     features = torch.stack(feature_list, 0)
     features = features.permute(0, 2, 1) # conv1 reaquires shape of (bs*channels*length)
-    cls_gt = []
-    for cls_gt_stacked in cls_gt_list:
-        cls_gt.append(torch.stack(cls_gt_stacked, 0))
-    # cls_gt = torch.stack(cls_gt_list, 0)
+    cls_gt = torch.stack(cls_gt_list, 0)
     # pdb.set_trace()
     return features, cls_gt, duration_list
 
-def get_dataloader(cfg, mode, batch_size):
+def get_dataloader(mode, batch_size):
     """
     returns:
     :feature: (Tensor) batch_size*100*400
@@ -150,20 +115,24 @@ def get_dataloader(cfg, mode, batch_size):
     :duration_list: (List(List(Tuple(start, end)))) 
     """
     dataset = OsalDataset(
-        cfg=cfg, 
+        data_dir='/media/e813/D/wzt/datasets/Activitynet/', 
+        anno_path='/media/e813/D/wzt/codes/Pytorch-BMN/data/activitynet_annotations/anet_anno_action.json', 
+        video_info_path="/media/e813/D/wzt/codes/Pytorch-BMN/data/activitynet_annotations/video_info_new.csv", 
+        action_name_path="/media/e813/D/wzt/codes/Pytorch-BMN/data/activitynet_annotations/action_name.csv", 
         mode=mode
     )
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_function)
+    data_loader = DataLoader(dataset, batch_size=2, shuffle=True, collate_fn=collate_function)
     return data_loader
 
         
 if __name__ == '__main__':
-    try:
-        f = open("/media/e813/D/wzt/codes/wzt_OSAL/config/config.json")
-        overall_config = json.load(f)
-    except IOError:
-        print('Model Building Error: errors occur when loading config file from '+config_path)
-    train_loader = get_dataloader(overall_config, 'training', 2)
+    train_dataset = OsalDataset(
+        data_dir='/media/e813/D/wzt/datasets/Activitynet/', 
+        anno_path='/media/e813/D/wzt/codes/Pytorch-BMN/data/activitynet_annotations/anet_anno_action.json', 
+        video_info_path="/media/e813/D/wzt/codes/Pytorch-BMN/data/activitynet_annotations/video_info_new.csv", 
+        action_name_path="/media/e813/D/wzt/codes/Pytorch-BMN/data/activitynet_annotations/action_name.csv"
+    )
+    train_loader = get_dataloader('training')
     for idx, (raw_feature, cls_gt, duration_list) in enumerate(train_loader):
         print(cls_gt)
         # print(raw_feature)

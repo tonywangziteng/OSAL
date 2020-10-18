@@ -84,6 +84,7 @@ class DownSampleHead(nn.Module):
 
         return cls_list, reg_list
 
+
 class UpSample(nn.Module):
     def __init__(self, config):
         super(UpSample, self).__init__()
@@ -110,6 +111,7 @@ class UpSample(nn.Module):
             out_list.append(feature)
         return out_list
 
+
 class MergeModule(nn.Module):
     '''
     Merge the feature from last layer and the feature of Unet structure
@@ -127,6 +129,7 @@ class MergeModule(nn.Module):
         merged_output = self.merge_conv(merged_input)
         
         return merged_output
+
 
 class UpSampleHead(nn.Module):
     def __init__(self, config):
@@ -148,9 +151,9 @@ class UpSampleHead(nn.Module):
         # shared head for cls and reg
         # cls output is 201 dim, cls number + bg
         # 3 is the number of channels to be concatenated 
-        self.cls_head = nn.Conv1d(out_dim+3, 201, kernel_size=3, padding=1)
+        self.cls_head = nn.Conv1d(out_dim+3, 201, kernel_size=1, padding=1)
         # start, end , centerness
-        self.reg_head = nn.Conv1d(out_dim+3, 3, kernel_size=3, padding=1)
+        self.reg_head = nn.Conv1d(out_dim+3, 3, kernel_size=1, padding=1)
 
     def forward(self, feature_list, reg_list):
         feature_list = feature_list[::-1]
@@ -194,6 +197,7 @@ class OsalModel(nn.Module):
         self.down_sample_head = DownSampleHead(config)
         self.up_sample = UpSample(config)
         self.up_sample_head = UpSampleHead(config)
+        print(self)
 
     def forward(self, feature):
         feature_list = self.down_sample(feature)

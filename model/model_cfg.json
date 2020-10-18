@@ -2,21 +2,21 @@
     "feature_dim":400, 
     "feature_len":100,
     "down_sample":{
-        "kernel_size":[3, 3, 3, 3],
-        "dims":[512, 1024, 2048, 2048]
+        "kernel_size":[3, 3, 3, 3, 3],
+        "dims":[512, 512, 1024, 1024, 2048]
     },
     "down_sample_head":{
         "kernel_size":[1, 1, 1, 1],
-        "in_dims":[400, 512, 1024, 2048, 2048],
+        "in_dims":[400, 512, 512, 1024, 1024, 2048],
         "out_dim":256
     },
     "up_sample":{
         "in_dim":2048,
-        "out_dims":[2048, 1024, 512, 400],
-        "out_padding":[0,0,1,1]
+        "out_dims":[1024, 1024, 512, 512, 400],
+        "out_padding":[0,0,0,1,1]
     },
     "up_sample_head":{
-        "in_dims":[400, 512, 1024, 2048, 2048],
+        "in_dims":[400, 512, 512, 1024, 1024, 2048],
         "out_dim":256
     },
     "proposals":{

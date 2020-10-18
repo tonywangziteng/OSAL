@@ -138,20 +138,19 @@ def collate_function(batch):
     cls_gt = []
     for cls_gt_stacked in cls_gt_list:
         cls_gt.append(torch.stack(cls_gt_stacked, 0))
-    # cls_gt = torch.stack(cls_gt_list, 0)
-    # pdb.set_trace()
+
     return features, cls_gt, duration_list
 
-def get_dataloader(cfg, mode, batch_size):
-    """
+def get_dataloader(cfg, mode, batch_size, shuffle = True, num_worker = 4):
+    r"""
     returns:
-    :feature: (Tensor) batch_size*100*400
-    :cls_gt: (Tensor) batch_size*100*201
+    :feature: (Tensor) batch_size*400*100
+    :cls_gt: (List(Tensor)) [batch_size*201*length] 
     :duration_list: (List(List(Tuple(start, end)))) 
     """
     dataset = OsalDataset(
         cfg=cfg, 
-        mode=mode
+        mode=mode, 
     )
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_function)
     return data_loader

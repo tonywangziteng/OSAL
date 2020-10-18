@@ -63,9 +63,9 @@ class DownSampleHead(nn.Module):
             )
         # shared head for cls and reg
         # cls output is 201 dim, cls number + bg
-        self.cls_head = nn.Conv1d(out_dim, 201, kernel_size=3, padding=1)
+        self.cls_head = nn.Conv1d(out_dim, 201, kernel_size=1, padding=0)
         # start, end , centerness
-        self.reg_head = nn.Conv1d(out_dim, 3, kernel_size=3, padding=1)
+        self.reg_head = nn.Conv1d(out_dim, 3, kernel_size=1, padding=0)
 
     def forward(self, feature_list):
         out_list = []
@@ -125,6 +125,7 @@ class MergeModule(nn.Module):
     def forward(self, origin_input, Unet_input):
         origin_output = self.origin_branch(origin_input)
         Unet_output = self.Unet_branch(Unet_input)
+        # pdb.set_trace()
         merged_input = Unet_output + origin_output
         merged_output = self.merge_conv(merged_input)
         
@@ -151,9 +152,9 @@ class UpSampleHead(nn.Module):
         # shared head for cls and reg
         # cls output is 201 dim, cls number + bg
         # 3 is the number of channels to be concatenated 
-        self.cls_head = nn.Conv1d(out_dim+3, 201, kernel_size=1, padding=1)
+        self.cls_head = nn.Conv1d(out_dim+3, 201, kernel_size=1, padding=0)
         # start, end , centerness
-        self.reg_head = nn.Conv1d(out_dim+3, 3, kernel_size=1, padding=1)
+        self.reg_head = nn.Conv1d(out_dim+3, 3, kernel_size=1, padding=0)
 
     def forward(self, feature_list, reg_list):
         feature_list = feature_list[::-1]

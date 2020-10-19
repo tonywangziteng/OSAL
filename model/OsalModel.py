@@ -21,6 +21,8 @@ class DownSample(nn.Module):
                 nn.Sequential(
                     nn.Conv1d(in_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1),
                     nn.ReLU(inplace=True),
+                    nn.Conv1d(out_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1),
+                    nn.ReLU(inplace=True),
                     nn.BatchNorm1d(out_dim),
                     nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
                 )
@@ -31,7 +33,7 @@ class DownSample(nn.Module):
     def forward(self, feature):
         feature_list = []
         x = feature
-        feature_list.append(x)
+        # feature_list.append(x)
         for name in self.submodule_names:
             submodule = getattr(self, name)
             x = submodule(x)
@@ -118,12 +120,14 @@ class MergeModule(nn.Module):
     '''
     def __init__(self, in_dim, out_dim, out_padding):
         super(MergeModule, self).__init__()
-        self.origin_branch = nn.ConvTranspose1d(in_dim, out_dim, kernel_size=3, stride=2, padding=1, output_padding=out_padding)
+        self.origin_branch_1 = nn.ConvTranspose1d(in_dim, out_dim, kernel_size=3, stride=1, padding=1, output_padding=0)
+        self.origin_branch_2 = nn.ConvTranspose1d(out_dim, out_dim, kernel_size=3, stride=2, padding=1, output_padding=out_padding)
         self.Unet_branch = nn.Conv1d(out_dim, out_dim, kernel_size=1, stride=1)
         self.merge_conv = nn.Conv1d(out_dim, out_dim, 3, stride=1, padding=1)
 
     def forward(self, origin_input, Unet_input):
-        origin_output = self.origin_branch(origin_input)
+        origin_output = torch.relu(self.origin_branch_1(origin_input)) 
+        origin_output = torch.relu(self.origin_branch_2(origin_output)) 
         Unet_output = self.Unet_branch(Unet_input)
         # pdb.set_trace()
         merged_input = Unet_output + origin_output

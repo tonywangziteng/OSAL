@@ -39,10 +39,11 @@ if __name__ == "__main__":
         config = json.load(f)
     except IOError:
         print('Model Building Error: errors occur when loading config file from '+config_path)
+        raise IOError
 
     if not os.path.exists(config['checkpoint_dir']):
         os.makedirs(config['checkpoint_dir'])
-
+    
     model = OsalModel()
     model = nn.DataParallel(model).cuda()
 
@@ -58,7 +59,7 @@ if __name__ == "__main__":
         start_epoch = 1
 
     train_dataloader = get_dataloader(config, 'training', batch_size=2, shuffle=True, num_worker=4)
-    train_dataloader = get_dataloader(config, 'validation', batch_size=1, shuffle=False, num_worker=4)
+    valid_dataloader = get_dataloader(config, 'validation', batch_size=1, shuffle=False, num_worker=4)
 
 
     # train_dataset = MyDataset(opt)
@@ -91,6 +92,7 @@ if __name__ == "__main__":
             # end_score = end_score.cuda()
 
             pdb.set_trace()
+            loss = clac_loss(cls_list, reg_list, cls_list_final, reg_list_final, cls_gt, duration_list)
 
             # TODO:finish mask and loss
             bm_mask = get_mask(opt.temporal_scale).cuda()

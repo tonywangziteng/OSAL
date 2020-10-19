@@ -7,16 +7,16 @@
     },
     "down_sample_head":{
         "kernel_size":[1, 1, 1, 1],
-        "in_dims":[400, 512, 512, 1024, 1024, 2048],
+        "in_dims":[512, 512, 1024, 1024, 2048],
         "out_dim":256
     },
     "up_sample":{
         "in_dim":2048,
-        "out_dims":[1024, 1024, 512, 512, 400],
-        "out_padding":[0,0,0,1,1]
+        "out_dims":[1024, 1024, 512, 512],
+        "out_padding":[0,0,0,1]
     },
     "up_sample_head":{
-        "in_dims":[400, 512, 512, 1024, 1024, 2048],
+        "in_dims":[512, 512, 1024, 1024, 2048],
         "out_dim":256
     },
     "proposals":{

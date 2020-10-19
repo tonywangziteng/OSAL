@@ -30,7 +30,8 @@ class OsalDataset(Dataset):
         video_info_path = cfg['video_info_path'] 
         action_name_path = cfg['action_name_path']
         self.perceptive_fields = np.array(cfg['perceptive_fields'])/100. 
-        self.perceptive_fields[-1] = 1.
+        self.feature_len = cfg['feature_lens']
+        # self.perceptive_fields[-1] = 1.
 
         assert mode in ['training', 'validation', 'testing'], 'the mode should be training, validation or testing, instead of {}'.format(mode)
         self.mode = mode
@@ -74,8 +75,7 @@ class OsalDataset(Dataset):
         # initialize cls_list
         cls_gt = []
         boundary_list = []
-        feature_lens = [50, 25, 13, 7, 4]
-        for length in feature_lens:
+        for length in self.feature_len:
             cls_gt.append(np.zeros((length, 201)))
 
         for anno in video_anno:

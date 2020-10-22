@@ -75,6 +75,7 @@ class OsalDataset(Dataset):
         # initialize cls_list
         cls_gt = []
         boundary_list = []
+        layer_index_list = []
         for length in self.feature_len:
             cls_gt.append(np.zeros((length, 201)))
 
@@ -88,6 +89,7 @@ class OsalDataset(Dataset):
             
             # get layer number and 
             layer_idx = self.allocate_layer(start_time, end_time)
+            layer_index_list.append(layer_idx)
             start_idx = start_idx//2**(layer_idx+1) + start_idx//2**(layer_idx)%2
             end_idx = end_idx//2**(layer_idx+1) + end_idx//2**(layer_idx)%2
 
@@ -95,7 +97,7 @@ class OsalDataset(Dataset):
             cls_gt[layer_idx][start_idx:end_idx, 200] = 1
             boundary_list.append((start_time, end_time))
         
-        return cls_gt, boundary_list
+        return cls_gt, boundary_list, len(video_anno), layer_index_list
 
     def allocate_layer(self, start_time, end_time):
         """
@@ -114,10 +116,10 @@ class OsalDataset(Dataset):
         feature = feature.values   
         
         # calculate ground truth
-        cls_gt, boundary_list = self.calc_gt(video_name)
+        cls_gt, boundary_list, num_anno, layer_index_list = self.calc_gt(video_name)
 
         # feature: batch_size * len(100) * feature_depth(400)
-        return feature, cls_gt, boundary_list
+        return feature, cls_gt, boundary_list, num_anno, layer_index_list
 
     def __len__(self):
         return len(self.video_name_list) 

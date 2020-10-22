@@ -1,9 +1,12 @@
 # coding: utf-8
 
-import os, json, pdb
+import os
+import json
+import pdb
 import random
 from utils.dataset_utils import get_dataloader
 from model.OsalModel import OsalModel
+from utils.loss_utils import OsalLoss
 
 import numpy as np
 import torch
@@ -46,6 +49,7 @@ if __name__ == "__main__":
     
     model = OsalModel()
     model = nn.DataParallel(model).cuda()
+    lossfn = OsalLoss()
 
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config['learning_rate'], weight_decay=config['weight_decay'])
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=config['step_size'], gamma=config['step_gamma'])
@@ -71,20 +75,38 @@ if __name__ == "__main__":
     #                                                num_workers=opt.num_workers, pin_memory=True)    
 
     valid_best_loss = float('inf')
-
+    clip_len_list = config['feature_lens']
     for epoch in tqdm(range(start_epoch, args.epochs + 1)):
-
         # Train.
         model.train()
         torch.cuda.empty_cache()
         epoch_train_loss = 0
-
-        for train_iter, (raw_feature, cls_gt, duration_list) in tqdm(enumerate(train_dataloader, start=1)):
+        epoch_cls_loss = 0
+        epoch_reg_loss = 0
+        reg_loss_fn = torch.nn.MSELoss()
+        cls_loss_fn = torch.nn.BCEWithLogitsLoss()
+        neg_sample_ratio = 0.2
+        for train_iter, (raw_feature, cls_gt, duration_list, num_anno, layer_index_list) in tqdm(enumerate(train_dataloader, start=1)):
             
             optimizer.zero_grad()
             raw_feature = raw_feature.to(device)
             cls_list, reg_list, cls_list_final, reg_list_final = model(raw_feature)
-            
+
+            # mask = cls_gt[:, :, 200]
+            # for clip_idx in range(num_anno):
+            #     layer_idx = layer_index_list[clip_idx] 
+            #     a = torch.Tensor(duration_list[clip_idx])
+            #     a = a.expand((clip_len_list[layer_idx], 2))
+            #     reg_gt = a.transpose(0,1)
+            #     epoch_reg_loss += reg_loss_fn(mask[layer_idx] * reg_list[layer_idx], mask[layer_idx] * reg_gt)  #粗reg loss
+                
+            #     reg_seq = torch.tensor([i for i in range(clip_len_list[layer_idx]+1)])
+            #     epoch_reg_loss += reg_loss_fn(mask[layer_idx] * (reg_list_final[layer_idx] + reg_seq), mask[layer_idx] * reg_gt)  #细reg loss
+
+            #     epoch_cls_loss += cls_loss_fn(mask[layer_idx] * cls_list[layer_idx], mask[layer_idx] * torch.Tensor(cls_gt[layer_idx]))  #正样本classification loss
+            # for i in range(5):
+            #     neg_mask = 1-torch.Tensor(cls_gt)
+            #     epoch_cls_loss += neg_sample_ratio * cls_loss_fn(neg_mask[i] * cls_list[i], neg_mask[i] * cls_list[i])
             # video_feature, gt_iou_map, start_score, end_score = train_data
             # video_feature = video_feature.cuda()
             # gt_iou_map = gt_iou_map.cuda()

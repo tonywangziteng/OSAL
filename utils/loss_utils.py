@@ -1,37 +1,107 @@
 import torch
 import numpy as np 
 import json, pdb
-from dataset_utils import get_dataloader
 import torch
 
 class LossCalculator():
-    def __init__(self, config):
+    def __init__(self, config, device):
         self.perceptive_fields = np.array(config['perceptive_fields']) 
         self.perceptive_fields = self.perceptive_fields/100.
         self.feature_lens = config['feature_lens']
         self.origin_map = self.get_origin_map()
+        self.ce_loss = torch.nn.CrossEntropyLoss(reduction='mean')
+        self.bce_loss = torch.nn.BCELoss(reduction='mean')
+        self.mse_loss = torch.nn.MSELoss(reduction='mean')
+        self.nll_loss = torch.nn.NLLLoss()
+        self.device = device
 
     def calc_loss(
         self, cls_list, reg_list, cls_list_final, reg_list_final, 
-        cls_gt, duration_list
+        cls_gt_, duration_list
     ):
-        reg_gt = self.
+        reg_gt_list, positive_indices = self.get_reg_gt(duration_list)
+
+        bs = cls_list[0].shape[0]   # batch-size
+        cls_gt_list = cls_gt_
+        for i in range(len(cls_gt_list)):
+            cls_gt_list[i] = cls_gt_list[i].to(self.device)
+        reg_ds_loss = torch.FloatTensor([0.]).to(self.device)
+        cls_ds_loss = torch.FloatTensor([0.]).to(self.device)
+        centerness_ds_loss = torch.FloatTensor([0.]).to(self.device)
+        reg_us_loss = torch.FloatTensor([0.]).to(self.device)
+        cls_us_loss = torch.FloatTensor([0.]).to(self.device)
+        centerness_us_loss = torch.FloatTensor([0.]).to(self.device)
+        
+        for i, indice in enumerate(positive_indices):
+            layer_idx, batch_idx, frame_idx = indice
+            # pdb.set_trace()
+            reg_result_ds = reg_list[layer_idx][batch_idx, :2, frame_idx]
+            centerness_ds = reg_list[layer_idx][batch_idx, 2, frame_idx]
+            cls_result_ds = cls_list[layer_idx][batch_idx, :200, frame_idx]
+            log_cls_result_ds = torch.log(cls_result_ds)
+            
+            reg_result_us = reg_list_final[layer_idx][batch_idx, :2, frame_idx]
+            centerness_us = reg_list_final[layer_idx][batch_idx, 2, frame_idx]
+            cls_result_us = cls_list_final[layer_idx][batch_idx, :200, frame_idx]
+            log_cls_result_us = torch.log(cls_result_us)
+
+            # pdb.set_trace()
+            cls_gt = cls_gt_list[layer_idx][batch_idx, 0, frame_idx]
+            reg_gt = reg_gt_list[layer_idx][batch_idx, :2, frame_idx]
+            reg_us_gt = (reg_result_ds - reg_gt).detach()
+            centerness_gt = reg_gt_list[layer_idx][batch_idx, 2, frame_idx]
+
+            # pdb.set_trace()
+            reg_ds_loss += self.mse_loss(reg_result_ds, reg_gt)
+            # pdb.set_trace()
+            # cls_ds_loss += self.ce_loss(cls_result_ds.unsqueeze(0), cls_gt.unsqueeze(0).long())
+            cls_ds_loss += self.nll_loss(log_cls_result_ds.unsqueeze(0), cls_gt.unsqueeze(0).long())
+            centerness_ds_loss += self.mse_loss(centerness_ds, centerness_gt)
+            reg_us_loss += self.mse_loss(reg_result_us, reg_us_gt)
+            # cls_us_loss += self.ce_loss(cls_result_us.unsqueeze(0), cls_gt.unsqueeze(0).long())
+            cls_us_loss += self.nll_loss(log_cls_result_us.unsqueeze(0), cls_gt.unsqueeze(0).long())
+            centerness_us_loss += self.mse_loss(centerness_us, centerness_gt)
+
+            # print(cls_gt.unsqueeze(0).long())
+
+        # calculate loss for background prediction
+        bg_loss = torch.FloatTensor([0.]).to(self.device)
+        for idx in range(len(self.feature_lens)):
+            bg_ds_result = cls_list[idx][:, 200, :]
+            bg_us_result = cls_list_final[idx][:, 200, :]
+            bg_gt = cls_gt_list[idx][:, 1, :]
+            
+            bg_loss += self.bce_loss(bg_ds_result, bg_gt) + self.bce_loss(bg_us_result, bg_gt)
+        # pdb.set_trace()
+        num_pos_indice = len(positive_indices)
+        # loss = (reg_ds_loss + reg_us_loss)/num_pos_indice*10
+        loss = (reg_ds_loss + 0.1*cls_ds_loss + centerness_ds_loss + 1*(reg_us_loss + 0.1*cls_us_loss + centerness_us_loss))/num_pos_indice*10 + bg_loss
+        # loss = (reg_ds_loss + 0.1*cls_ds_loss + centerness_ds_loss)/num_pos_indice*10 + bg_loss
+        # print(bg_loss, reg_ds_loss)
+        # print(reg_ds_loss, cls_ds_loss, centerness_ds_loss, reg_us_loss, cls_us_loss, centerness_us_loss, bg_loss)
+
+        return loss , cls_us_loss/num_pos_indice
+        
 
     def get_reg_gt(self, duration_list):
         '''
         This kinds batch-size videos. 
         param:  
         :duration_list: list(list(tuple))
+        return:
+        :reg_gt_list: list(Tensor)
+        :positive_indices: list(list(layer_idx, batch_idx, len_idx))
         '''
         # Firstly generate all the regression ground truth we need, then stack them together
         reg_gt_list_all = []
+        positive_indices = []
         batch_size = len(duration_list)
         # pdb.set_trace()
         for video_idx, duration_list_per_video in enumerate(duration_list):
             reg_gt_list = []
             # initialize the list 
             for length in self.feature_lens:
-                reg_gt_list.append(np.zeros((length, 3)))
+                reg_gt_list.append(np.zeros((3, length)))
 
             # durations in video
             for duration in duration_list_per_video:
@@ -42,18 +112,24 @@ class LossCalculator():
                 end_idx = int(end_time * 100)
                 start_idx = start_idx//2**(layer_idx+1) + start_idx//2**(layer_idx)%2
                 end_idx = end_idx//2**(layer_idx+1) + end_idx//2**(layer_idx)%2
-                
-                reg_gt_list[layer_idx][start_idx:end_idx, 0] = self.origin_map[layer_idx][start_idx:end_idx]-start_time
-                reg_gt_list[layer_idx][start_idx:end_idx, 1] = end_time - self.origin_map[layer_idx][start_idx:end_idx]
-            pdb.set_trace()
+                start = self.origin_map[layer_idx][start_idx:end_idx+1]-start_time
+                reg_gt_list[layer_idx][0, start_idx:end_idx+1] = start
+                end = end_time - self.origin_map[layer_idx][start_idx:end_idx+1]
+                reg_gt_list[layer_idx][1, start_idx:end_idx+1] = end
+                reg_gt_list[layer_idx][2, start_idx:end_idx+1] = np.where(start>end, end, start)/np.where(start>end, start, end)
+                # generate positive example indeices
+                # pdb.set_trace()
+                for len_idx in range(start_idx, end_idx):
+                    positive_indices.append([layer_idx, video_idx, len_idx])
+            # pdb.set_trace()
             reg_gt_list_all.append(reg_gt_list)
         reg_gt_list_final = []
-        pdb.set_trace()
+        # pdb.set_trace()
         for layer_idx in range(len(self.feature_lens)):
             gt = np.stack([reg_gt[layer_idx] for reg_gt in reg_gt_list_all])
-            gt = torch.Tensor(gt)
+            gt = torch.Tensor(gt).to(self.device)
             reg_gt_list_final.append(gt)
-        return reg_gt_list_final
+        return reg_gt_list_final, positive_indices
 
 
     def allocate_layer(self, start_time, end_time):
@@ -77,59 +153,8 @@ class LossCalculator():
         return origin_map
 
 
-class OsalLoss():
-    def __init__(self):
-        self.reg_loss_fn = torch.nn.MSELoss()
-        self.cls_loss_fn = torch.nn.BCEWithLogitsLoss()
-        self.epoch_train_loss = 0
-        self.epoch_cls_loss = 0
-        self.epoch_reg_loss = 0
-
-    def LossCalc(self, cls_list, cls_list_final, reg_list, reg_list_final, cls_gt, duration_list, clip_len_list,
-                 num_anno, layer_index_list):
-        mask_list = []
-        num_in_layers = []
-        num_sample = 0.
-        for i in range(5):
-            mask_list.append(cls_gt[i][:, 200])
-            num_in_layers.append(torch.sum(
-                torch.where(mask_list[i] > 0.5, torch.ones(clip_len_list[i], dtype=torch.float32),
-                            torch.zeros(clip_len_list[i], dtype=torch.float32))))
-        for id, i in enumerate(pow(2, np.array([0, 1, 2, 3, 4]))):
-            num_sample += num_in_layers[id] * i
-        neg_sample_ratio = max(num_sample / (50 * 5), 0.)
-        for clip_idx in range(num_anno):
-            layer_idx = layer_index_list[clip_idx]
-            a = torch.Tensor(duration_list[clip_idx])
-            a = a.expand((clip_len_list[layer_idx], 2))
-            reg_gt = a.transpose(0, 1)
-            self.epoch_reg_loss += self.reg_loss_fn(reg_list[layer_idx].transpose(0, 1) * mask_list[layer_idx],
-                                                    mask_list[layer_idx] * reg_gt)  # 粗reg loss
-
-            reg_seq = torch.tensor([i for i in range(clip_len_list[layer_idx])], dtype=torch.float32)
-            reg_seq = reg_seq.expand((2, clip_len_list[layer_idx]))
-            self.epoch_reg_loss += self.reg_loss_fn(
-                mask_list[layer_idx] * (reg_list_final[layer_idx].transpose(0, 1) + reg_seq),
-                mask_list[layer_idx] * reg_gt)  # 细reg loss
-
-            self.epoch_cls_loss = self.epoch_cls_loss / 2. + self.cls_loss_fn(
-                mask_list[layer_idx] * cls_list[layer_idx].transpose(0, 1),
-                mask_list[layer_idx] * torch.Tensor(cls_gt[layer_idx]).transpose(0, 1)) + \
-                                  self.cls_loss_fn(
-                                      mask_list[layer_idx] * cls_list_final[layer_idx].transpose(0, 1),
-                                      mask_list[layer_idx] * torch.Tensor(cls_gt[layer_idx]).transpose(0, 1))
-            # 正样本classification loss
-            for i in range(5):
-                neg_mask = 1 - mask_list[i]
-                self.epoch_cls_loss = self.epoch_cls_loss / 2. + neg_sample_ratio * self.cls_loss_fn(
-                    neg_mask * cls_list[i].transpose(0, 1), neg_mask * cls_list[i].transpose(0, 1)) + \
-                                      neg_sample_ratio * self.cls_loss_fn(
-                                            neg_mask * cls_list_final[i].transpose(0, 1), neg_mask * cls_list[i].transpose(0, 1))
-                # 负样本clsloss 乘2因为短视野数据量减半了，loss加回来
-        return self.epoch_reg_loss, self.epoch_cls_loss
-
-
 if __name__ == "__main__":
+    from dataset_utils import get_dataloader
     config_path = './config/config.json'
     try:
         f = open(config_path)

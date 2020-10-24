@@ -43,7 +43,10 @@ class OsalDataset(Dataset):
         
         # load dataset information
         all_info = pandas.read_csv(video_info_path)
-        self.data_info = all_info[all_info.subset == self.mode]
+        m = self.mode
+        if m == 'testing':
+            m = 'validation'
+        self.data_info = all_info[all_info.subset == m]
         self.video_name_list = self.data_info.video.tolist()
 
         # load annotations 
@@ -76,8 +79,9 @@ class OsalDataset(Dataset):
         cls_gt = []
         boundary_list = []
         layer_index_list = []
+        cls_list = []
         for length in self.feature_len:
-            cls_gt.append(np.zeros((length, 201)))
+            cls_gt.append(np.zeros((2, length)))
 
         for anno in video_anno:
             action_name = anno['label']
@@ -93,11 +97,12 @@ class OsalDataset(Dataset):
             start_idx = start_idx//2**(layer_idx+1) + start_idx//2**(layer_idx)%2
             end_idx = end_idx//2**(layer_idx+1) + end_idx//2**(layer_idx)%2
 
-            cls_gt[layer_idx][start_idx:end_idx, name_index] = 1
-            cls_gt[layer_idx][start_idx:end_idx, 200] = 1
+            cls_gt[layer_idx][0, start_idx:end_idx+1] = name_index
+            cls_gt[layer_idx][1, start_idx:end_idx+1] = 1
             boundary_list.append((start_time, end_time))
+            cls_list.append(name_index)
         
-        return cls_gt, boundary_list, len(video_anno), layer_index_list
+        return cls_gt, boundary_list, cls_list
 
     def allocate_layer(self, start_time, end_time):
         """
@@ -116,16 +121,20 @@ class OsalDataset(Dataset):
         feature = feature.values   
         
         # calculate ground truth
-        cls_gt, boundary_list, num_anno, layer_index_list = self.calc_gt(video_name)
+        cls_gt, boundary_list, cls_list = self.calc_gt(video_name)
 
         # feature: batch_size * len(100) * feature_depth(400)
-        return feature, cls_gt, boundary_list, num_anno, layer_index_list
+        if self.mode == 'testing':
+            return feature, cls_gt, boundary_list, video_name, cls_list
+        else:
+            return feature, cls_gt, boundary_list
 
     def __len__(self):
         return len(self.video_name_list) 
 
 def collate_function(batch):
     feature_list, cls_gt_list, duration_list = [], [], []
+    video_name_list, cls_list = [], []
     for idx, element in enumerate(batch):
         feature_list.append(torch.Tensor(element[0]))
         # concat cls_gt
@@ -135,19 +144,24 @@ def collate_function(batch):
             else:
                 cls_gt_list[cls_idx].append(torch.Tensor(cls_gt))
         duration_list.append(element[2])
+        if len(element) == 5:
+            video_name_list.append(element[3])
+            cls_list.append(element[4])
     features = torch.stack(feature_list, 0)
     features = features.permute(0, 2, 1) # conv1 reaquires shape of (bs*channels*length)
     cls_gt = []
     for cls_gt_stacked in cls_gt_list:
         cls_gt.append(torch.stack(cls_gt_stacked, 0))
-
-    return features, cls_gt, duration_list
+    if len(video_name_list) == 0:
+        return features, cls_gt, duration_list
+    else:
+        return features, cls_list, duration_list, video_name_list
 
 def get_dataloader(cfg, mode, batch_size, shuffle = True, num_worker = 4):
     r"""
     returns:
     :feature: (Tensor) batch_size*400*100
-    :cls_gt: (List(Tensor)) [batch_size*201*length] 
+    :cls_gt: (List(Tensor)) [batch_size*2*length] 
     :duration_list: (List(List(Tuple(start, end)))) 
     """
     dataset = OsalDataset(

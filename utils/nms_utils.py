@@ -27,10 +27,13 @@ def soft_nms_proposal(df_proposal, alpha, t1, t2, num_return_proposal=100):
     t_start = list(proposal_information.xmin.values[:])
     t_end = list(proposal_information.xmax.values[:])
     score = list(proposal_information.score.values[:])
+    idx = list(proposal_information.cls_idx.values[:])
+
 
     t_start_return = []
     t_end_return = []
     score_return = []
+    cls_idx_return = []
 
     while len(score) > 1 and len(score_return) < num_return_proposal:
         max_index = score.index(max(score))
@@ -47,15 +50,18 @@ def soft_nms_proposal(df_proposal, alpha, t1, t2, num_return_proposal=100):
         t_start_return.append(t_start[max_index])
         t_end_return.append(t_end[max_index])
         score_return.append(score[max_index])
+        cls_idx_return.append(idx[max_index])
 
         t_start.pop(max_index)
         t_end.pop(max_index)
         score.pop(max_index)
+        idx.pop(max_index)
 
     return_df = pd.DataFrame()
     return_df['xmin'] = t_start_return
     return_df['xmax'] = t_end_return
     return_df['score'] = score_return
+    return_df['cls_idx'] = cls_idx_return
 
     return return_df
 

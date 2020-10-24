@@ -1,12 +1,11 @@
 # coding: utf-8
-
 import os
 import json
 import pdb
 import random
 from utils.dataset_utils import get_dataloader
 from model.OsalModel import OsalModel
-from utils.loss_utils import OsalLoss
+from utils.loss_utils import LossCalculator
 
 import numpy as np
 import torch
@@ -14,6 +13,9 @@ import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 import argparse
+import matplotlib.pyplot as plt
+from collections import OrderedDict
+import os.path as osp
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--train_from_checkpoint", action='store_true', default=False)
@@ -22,7 +24,7 @@ args = parser.parse_args()
 
 # GPU setting.
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # range GPU in order
-os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1"            
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"            
 
 # Basic test.
 print("Pytorch's version is {}.".format(torch.__version__))
@@ -47,23 +49,34 @@ if __name__ == "__main__":
     if not os.path.exists(config['checkpoint_dir']):
         os.makedirs(config['checkpoint_dir'])
     
-    model = OsalModel()
-    model = nn.DataParallel(model).cuda()
-    lossfn = OsalLoss()
+    model = OsalModel().to(device)
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config['learning_rate'], weight_decay=config['weight_decay'])
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=config['step_size'], gamma=config['step_gamma'])
+    # model = nn.DataParallel(model).cuda()
+    lossfn = LossCalculator(config, device)
+
+    # load_model
+    start_epoch = 0
+    if args.train_from_checkpoint:
+        weight_dir = config['checkpoint_dir']
+        weight_path = osp.join(weight_dir, 'weight1.pth.tar')
+        checkpoint = torch.load(weight_path)
+
+        # new_state_dict = OrderedDict()
+        # for k, v in checkpoint['state_dict'].items():
+        #     name = k[7:] # remove `module.`
+        #     new_state_dict[name] = v
+
+        # model.load_state_dict(new_state_dict)
+        model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        start_epoch = checkpoint['epoch']
 
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config['learning_rate'], weight_decay=config['weight_decay'])
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=config['step_size'], gamma=config['step_gamma'])
 
-    if args.train_from_checkpoint: 
-        checkpoint = torch.load(opt.checkpoint_path + '9_param.pth.tar')
-        model.load_state_dict(checkpoint['state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        start_epoch = checkpoint['epoch']
-    else:
-        start_epoch = 1
-
-    train_dataloader = get_dataloader(config, 'training', batch_size=2, shuffle=True, num_worker=4)
-    valid_dataloader = get_dataloader(config, 'validation', batch_size=1, shuffle=False, num_worker=4)
+    train_dataloader = get_dataloader(config, 'training', batch_size=16, shuffle=True, num_worker=8)
+    valid_dataloader = get_dataloader(config, 'validation', batch_size=8, shuffle=False, num_worker=8)
 
 
     # train_dataset = MyDataset(opt)
@@ -76,7 +89,11 @@ if __name__ == "__main__":
 
     valid_best_loss = float('inf')
     clip_len_list = config['feature_lens']
-    for epoch in tqdm(range(start_epoch, args.epochs + 1)):
+    train_loss_list = []
+    debug_loss_list = []
+    valid_idx = []
+    valid_loss = []
+    for epoch in range(start_epoch, start_epoch + args.epochs + 1):
         # Train.
         model.train()
         torch.cuda.empty_cache()
@@ -86,71 +103,76 @@ if __name__ == "__main__":
         reg_loss_fn = torch.nn.MSELoss()
         cls_loss_fn = torch.nn.BCEWithLogitsLoss()
         neg_sample_ratio = 0.2
-        for train_iter, (raw_feature, cls_gt, duration_list, num_anno, layer_index_list) in tqdm(enumerate(train_dataloader, start=1)):
+        pbar = tqdm(train_dataloader)
+        cnt = 0
+        for raw_feature, cls_gt, duration_list in pbar:
+            # cnt+=1
+            # if cnt == 30:
+            #     break
             
             optimizer.zero_grad()
             raw_feature = raw_feature.to(device)
             cls_list, reg_list, cls_list_final, reg_list_final = model(raw_feature)
 
-            # mask = cls_gt[:, :, 200]
-            # for clip_idx in range(num_anno):
-            #     layer_idx = layer_index_list[clip_idx] 
-            #     a = torch.Tensor(duration_list[clip_idx])
-            #     a = a.expand((clip_len_list[layer_idx], 2))
-            #     reg_gt = a.transpose(0,1)
-            #     epoch_reg_loss += reg_loss_fn(mask[layer_idx] * reg_list[layer_idx], mask[layer_idx] * reg_gt)  #粗reg loss
-                
-            #     reg_seq = torch.tensor([i for i in range(clip_len_list[layer_idx]+1)])
-            #     epoch_reg_loss += reg_loss_fn(mask[layer_idx] * (reg_list_final[layer_idx] + reg_seq), mask[layer_idx] * reg_gt)  #细reg loss
+            loss, debug_loss = lossfn.calc_loss(cls_list, reg_list, cls_list_final, reg_list_final, cls_gt, duration_list)
 
-            #     epoch_cls_loss += cls_loss_fn(mask[layer_idx] * cls_list[layer_idx], mask[layer_idx] * torch.Tensor(cls_gt[layer_idx]))  #正样本classification loss
-            # for i in range(5):
-            #     neg_mask = 1-torch.Tensor(cls_gt)
-            #     epoch_cls_loss += neg_sample_ratio * cls_loss_fn(neg_mask[i] * cls_list[i], neg_mask[i] * cls_list[i])
-            # video_feature, gt_iou_map, start_score, end_score = train_data
-            # video_feature = video_feature.cuda()
-            # gt_iou_map = gt_iou_map.cuda()
-            # start_score = start_score.cuda()
-            # end_score = end_score.cuda()
+            # pdb.set_trace()
+            debug_loss_list.append(debug_loss.detach().cpu().item())
 
-            pdb.set_trace()
-            loss = clac_loss(cls_list, reg_list, cls_list_final, reg_list_final, cls_gt, duration_list)
+            loss.backward()
+            optimizer.step() 
+            if len(train_loss_list)==0:
+                train_loss_list.append(loss.detach().cpu().item())
+            else:
+                new_loss = train_loss_list[-1]*0.9 + loss.detach().cpu().item()*0.1
+                train_loss_list.append(new_loss)
+            pbar.set_description('loss={:.4f}, len={}'.format(loss.detach().cpu().item(), len(train_loss_list)))
 
-            # TODO:finish mask and loss
-            bm_mask = get_mask(opt.temporal_scale).cuda()
-            # train_loss: total_loss, tem_loss, pem_reg_loss, pem_cls_loss
-            train_loss = bmn_loss(bm_confidence_map, start, end, gt_iou_map, start_score, end_score, bm_mask)
+            if len(train_loss_list)%3 == 0 and len(train_loss_list)!=0:
+                plt.close()
+                plt.figure()
+                plt.plot(train_loss_list)
+                plt.savefig('loss_res3.jpg')
+
+                plt.close()
+                plt.figure()
+                plt.plot(debug_loss_list)
+                plt.savefig('debug_res.jpg')
             
-            train_loss[0].backward()
-            optimizer.step()
-
-            epoch_train_loss = epoch_train_loss + train_loss[0].item()
-
         scheduler.step()
 
         # Valid.
         epoch_valid_loss = 0
+        loss_list = []
+        total = 300
         with torch.no_grad():
             model.eval()
-            for valid_iter, valid_data in enumerate(valid_dataloader, start=1):
-                video_feature, gt_iou_map, start_score, end_score = valid_data
-                video_feature = video_feature.cuda()
-                gt_iou_map = gt_iou_map.cuda()
-                start_score = start_score.cuda()
-                end_score = end_score.cuda()
+            pbar = tqdm(valid_dataloader, total=300)
+            cnt = 0
+            for raw_feature, cls_gt, duration_list in pbar:
+                cnt+=1
+                if cnt==total:
+                    break
 
-                bm_confidence_map, start, end = model(video_feature)
+                raw_feature = raw_feature.to(device)
+                cls_list, reg_list, cls_list_final, reg_list_final = model(raw_feature)
 
-                valid_loss = bmn_loss(bm_confidence_map, start, end, gt_iou_map, start_score, end_score, bm_mask)
+                loss, _ = lossfn.calc_loss(cls_list, reg_list, cls_list_final, reg_list_final, cls_gt, duration_list)
 
-                epoch_valid_loss = epoch_valid_loss + valid_loss[0].item()
-
-        if epoch <= 10 or epoch % 5 == 0:
-            print('Epoch {}: Training loss {:.3}, Validation loss {:.3}'.format(
-                    epoch, float(epoch_train_loss/train_iter), float(epoch_valid_loss/valid_iter)))  
-            with open(opt.save_path + start_time + '/log.txt', 'a') as f:
-                f.write('Epoch {}: Training loss {:.3}, Validation loss {:.3} \n'.format(
-                    epoch, float(epoch_train_loss/train_iter), float(epoch_valid_loss/valid_iter)))  
+                loss_list.append(loss.detach().item())
+                
+                pbar.set_description('loss={}'.format(loss.detach().item()))
+            
+        print('Epoch {}: , Validation loss {:.3}'.format(
+                epoch, np.array(loss_list).mean()))  
+        epoch_valid_loss = np.array(loss_list).mean()
+        valid_idx.append(len(train_loss_list))
+        valid_loss.append(np.array(loss_list).mean())
+        plt.figure()
+        plt.plot(train_loss_list)
+        plt.plot(valid_idx, valid_loss)
+        plt.savefig('loss_res_with_valid3.jpg')
+        plt.close()
 
 
         if epoch_valid_loss < valid_best_loss:
@@ -158,7 +180,7 @@ if __name__ == "__main__":
             checkpoint = {'state_dict': model.state_dict(),
                           'optimizer': optimizer.state_dict(),
                           'epoch': epoch}
-            torch.save(checkpoint, opt.save_path + start_time + '/' + str(epoch) + '_param.pth.tar')
+            torch.save(checkpoint, config['checkpoint_dir']+'/epoch' + str(epoch) + '_{}'.format(np.array(loss_list).mean()) + '_param.pth.tar')
             valid_best_loss = epoch_valid_loss
             
             # Save whole model.

@@ -40,7 +40,7 @@ if __name__ == "__main__":
 
     # load_model
     weight_dir = config['checkpoint_dir']
-    weight_path = osp.join(weight_dir, 'weight1.pth.tar')
+    weight_path = osp.join(weight_dir, 'epoch13_10.211940056983186_param.pth.tar')
     checkpoint = torch.load(weight_path)
 
     model.load_state_dict(checkpoint['state_dict'])
@@ -95,7 +95,7 @@ if __name__ == "__main__":
             print('predicted durations: ', np.stack([start, end], axis=-1))
             print('ground_truth class', cls_gt_list)
             print('predicted class ', np.argmax(positive_cls, 0))
-            pdb.set_trace()
+        pdb.set_trace()
 
     data_before_nms = json.dumps(data_before_nms)
     f.write(data_before_nms)

@@ -19,12 +19,12 @@ class DownSample(nn.Module):
             self.add_module(
                 'down_sample_{}'.format(idx),
                 nn.Sequential(
+                    nn.BatchNorm1d(in_dim),
                     nn.Conv1d(in_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1),
                     nn.ReLU(inplace=True),
-                    nn.Conv1d(out_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1),
-                    nn.ReLU(inplace=True),
-                    nn.BatchNorm1d(out_dim),
-                    nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
+                    nn.Conv1d(out_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1, stride=2),
+                    nn.ReLU(inplace=True)
+                    # nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
                 )
             )
             in_dim = out_dim
@@ -59,15 +59,26 @@ class DownSampleHead(nn.Module):
             self.add_module(
                 'truncate_{}'.format(idx), 
                 nn.Sequential(
+                    nn.BatchNorm1d(in_dim), 
                     nn.Conv1d(in_dim, out_dim, kernel_size=1),
                     nn.ReLU(inplace=True)
                 )
             )
         # shared head for cls and reg
         # cls output is 201 dim, cls number + bg
-        self.cls_head = nn.Conv1d(out_dim, 201, kernel_size=1, padding=0)
+        self.cls_head = nn.Sequential(
+            nn.BatchNorm1d(out_dim), 
+            nn.Conv1d(out_dim, out_dim, kernel_size=1, padding=0), 
+            nn.ReLU(), 
+            nn.Conv1d(out_dim, 201, kernel_size=1, padding=0)
+        )
         # start, end , centerness
-        self.reg_head = nn.Conv1d(out_dim, 3, kernel_size=1, padding=0)
+        self.reg_head = nn.Sequential(
+            nn.BatchNorm1d(out_dim), 
+            nn.Conv1d(out_dim, out_dim, kernel_size=1, padding=0), 
+            nn.ReLU(), 
+            nn.Conv1d(out_dim, 3, kernel_size=1, padding=0)
+        )
 
     def forward(self, feature_list):
         out_list = []
@@ -79,9 +90,13 @@ class DownSampleHead(nn.Module):
         
         cls_list, reg_list = [], []
         for feature in out_list:
-            cls_result = torch.softmax(self.cls_head(feature), dim=1)
+            x = self.cls_head(feature)
+            # cls_result = torch.softmax(x[:, :200, :], dim=1)
+            cls_result = x[:, :200, :]
+            bg_result = torch.sigmoid(x[:, 200:, :])
             reg_result = torch.tanh(self.reg_head(feature))
-            cls_list.append(cls_result)
+            cls_list.append(torch.cat([cls_result, bg_result], dim=1))
+            # pdb.set_trace()
             reg_list.append(reg_result)
 
         return cls_list, reg_list
@@ -178,9 +193,12 @@ class UpSampleHead(nn.Module):
 
         cls_list, reg_list = [], []
         for feature in merged_feature:
-            cls_result = torch.softmax(self.cls_head(feature), dim=1)
+            x = self.cls_head(feature)
+            # cls_result = torch.softmax(x[:, :200, :], dim=1)
+            cls_result = x[:, :200, :]
+            bg_result = torch.sigmoid(x[:, 200:, :])
             reg_result = torch.tanh(self.reg_head(feature))
-            cls_list.append(cls_result)
+            cls_list.append(torch.cat([cls_result, bg_result], dim=1))
             reg_list.append(reg_result)
 
         return cls_list, reg_list

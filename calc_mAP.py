@@ -10,8 +10,8 @@ test_gt_json_path = './output/anet_anno_action.json'
 test_preds_json_path = './output/result_proposal' + '.json'
 action_name_path = './output/action_name.csv'
 
-nms_thres = 0.2
-iou_thres = 0.05
+nms_thres = 0.01
+iou_thres = 0.2
 score_thres = 0.1
 class_nb = 200
 

@@ -101,6 +101,7 @@ class OsalDataset(Dataset):
             cls_gt[layer_idx][1, start_idx:end_idx+1] = 1
             boundary_list.append((start_time, end_time))
             cls_list.append(name_index)
+            # pdb.set_trace()
         
         return cls_gt, boundary_list, cls_list
 
@@ -127,7 +128,7 @@ class OsalDataset(Dataset):
         if self.mode == 'testing':
             return feature, cls_gt, boundary_list, video_name, cls_list
         else:
-            return feature, cls_gt, boundary_list
+            return feature, cls_gt, boundary_list, video_name
 
     def __len__(self):
         return len(self.video_name_list) 
@@ -144,16 +145,16 @@ def collate_function(batch):
             else:
                 cls_gt_list[cls_idx].append(torch.Tensor(cls_gt))
         duration_list.append(element[2])
+        video_name_list.append(element[3])
         if len(element) == 5:
-            video_name_list.append(element[3])
             cls_list.append(element[4])
     features = torch.stack(feature_list, 0)
     features = features.permute(0, 2, 1) # conv1 reaquires shape of (bs*channels*length)
     cls_gt = []
     for cls_gt_stacked in cls_gt_list:
         cls_gt.append(torch.stack(cls_gt_stacked, 0))
-    if len(video_name_list) == 0:
-        return features, cls_gt, duration_list
+    if len(cls_list) == 0:
+        return features, cls_gt, duration_list, video_name_list
     else:
         return features, cls_list, duration_list, video_name_list
 

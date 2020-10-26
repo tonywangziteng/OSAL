@@ -44,7 +44,7 @@ if __name__=="__main__":
     model = model.cuda()
 
     weight_dir = config['checkpoint_dir']
-    weight_path = osp.join(weight_dir, 'weight1.pth.tar')
+    weight_path = osp.join(weight_dir, 'epoch13_10.211940056983186_param.pth.tar')
     checkpoint = torch.load(weight_path)
 
     model.load_state_dict(checkpoint['state_dict'])
@@ -98,9 +98,9 @@ if __name__=="__main__":
                 feature_arr = np.array(feature[200, :])
                 limt = feature_arr[np.argmax(feature_arr)]  # 阈值设置
 
-                fgd_list = (feature[0:200, feature[200, :]>0.005]) 
+                fgd_list = (feature[0:200, feature[200, :]>0.01]) 
                 cls_each.extend(np.argmax(np.array(fgd_list), axis = 0))
-                idx_each.extend([i for i in range(len(feature[200, :])) if feature[200, i]>0.005])
+                idx_each.extend([i for i in range(len(feature[200, :])) if feature[200, i]>0.01])
 
                 # pdb.set_trace()
                 

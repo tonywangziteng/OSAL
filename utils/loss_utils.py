@@ -9,7 +9,7 @@ class LossCalculator():
         self.perceptive_fields = self.perceptive_fields/100.
         self.feature_lens = config['feature_lens']
         self.origin_map = self.get_origin_map()
-        self.ce_loss = torch.nn.CrossEntropyLoss(reduction='mean')
+        self.ce_loss = torch.nn.CrossEntropyLoss(reduction='mean', )
         self.bce_loss = torch.nn.BCELoss(reduction='mean')
         self.mse_loss = torch.nn.MSELoss(reduction='mean')
         self.nll_loss = torch.nn.NLLLoss()
@@ -17,11 +17,10 @@ class LossCalculator():
 
     def calc_loss(
         self, cls_list, reg_list, cls_list_final, reg_list_final, 
-        cls_gt_, duration_list
+        cls_gt_, duration_list, epoch_num
     ):
         reg_gt_list, positive_indices = self.get_reg_gt(duration_list)
 
-        bs = cls_list[0].shape[0]   # batch-size
         cls_gt_list = cls_gt_
         for i in range(len(cls_gt_list)):
             cls_gt_list[i] = cls_gt_list[i].to(self.device)
@@ -32,18 +31,17 @@ class LossCalculator():
         cls_us_loss = torch.FloatTensor([0.]).to(self.device)
         centerness_us_loss = torch.FloatTensor([0.]).to(self.device)
         
+        # pdb.set_trace()
         for i, indice in enumerate(positive_indices):
             layer_idx, batch_idx, frame_idx = indice
             # pdb.set_trace()
             reg_result_ds = reg_list[layer_idx][batch_idx, :2, frame_idx]
             centerness_ds = reg_list[layer_idx][batch_idx, 2, frame_idx]
             cls_result_ds = cls_list[layer_idx][batch_idx, :200, frame_idx]
-            log_cls_result_ds = torch.log(cls_result_ds)
             
             reg_result_us = reg_list_final[layer_idx][batch_idx, :2, frame_idx]
             centerness_us = reg_list_final[layer_idx][batch_idx, 2, frame_idx]
             cls_result_us = cls_list_final[layer_idx][batch_idx, :200, frame_idx]
-            log_cls_result_us = torch.log(cls_result_us)
 
             # pdb.set_trace()
             cls_gt = cls_gt_list[layer_idx][batch_idx, 0, frame_idx]
@@ -54,15 +52,14 @@ class LossCalculator():
             # pdb.set_trace()
             reg_ds_loss += self.mse_loss(reg_result_ds, reg_gt)
             # pdb.set_trace()
-            # cls_ds_loss += self.ce_loss(cls_result_ds.unsqueeze(0), cls_gt.unsqueeze(0).long())
-            cls_ds_loss += self.nll_loss(log_cls_result_ds.unsqueeze(0), cls_gt.unsqueeze(0).long())
+            cls_ds_loss += self.ce_loss(cls_result_ds.unsqueeze(0), cls_gt.unsqueeze(0).long())
+            # cls_ds_loss += self.nll_loss(log_cls_result_ds.unsqueeze(0), cls_gt.unsqueeze(0).long())
             centerness_ds_loss += self.mse_loss(centerness_ds, centerness_gt)
             reg_us_loss += self.mse_loss(reg_result_us, reg_us_gt)
-            # cls_us_loss += self.ce_loss(cls_result_us.unsqueeze(0), cls_gt.unsqueeze(0).long())
-            cls_us_loss += self.nll_loss(log_cls_result_us.unsqueeze(0), cls_gt.unsqueeze(0).long())
+            cls_us_loss += self.ce_loss(cls_result_us.unsqueeze(0), cls_gt.unsqueeze(0).long())
+            # cls_us_loss += self.nll_loss(log_cls_result_us.unsqueeze(0), cls_gt.unsqueeze(0).long().detach())
             centerness_us_loss += self.mse_loss(centerness_us, centerness_gt)
-
-            # print(cls_gt.unsqueeze(0).long())
+        # pdb.set_trace()
 
         # calculate loss for background prediction
         bg_loss = torch.FloatTensor([0.]).to(self.device)
@@ -70,17 +67,21 @@ class LossCalculator():
             bg_ds_result = cls_list[idx][:, 200, :]
             bg_us_result = cls_list_final[idx][:, 200, :]
             bg_gt = cls_gt_list[idx][:, 1, :]
-            
             bg_loss += self.bce_loss(bg_ds_result, bg_gt) + self.bce_loss(bg_us_result, bg_gt)
-        # pdb.set_trace()
+
         num_pos_indice = len(positive_indices)
         # loss = (reg_ds_loss + reg_us_loss)/num_pos_indice*10
-        loss = (reg_ds_loss + 0.1*cls_ds_loss + centerness_ds_loss + 1*(reg_us_loss + 0.1*cls_us_loss + centerness_us_loss))/num_pos_indice*10 + bg_loss
-        # loss = (reg_ds_loss + 0.1*cls_ds_loss + centerness_ds_loss)/num_pos_indice*10 + bg_loss
-        # print(bg_loss, reg_ds_loss)
-        # print(reg_ds_loss, cls_ds_loss, centerness_ds_loss, reg_us_loss, cls_us_loss, centerness_us_loss, bg_loss)
+        # if epoch_num > 10:
+        if epoch_num < 10:
+            # print('all losses added')
+            loss = (10*reg_ds_loss + 0.1*cls_ds_loss + centerness_ds_loss)/(1+num_pos_indice)*10 + bg_loss
 
-        return loss , cls_us_loss/num_pos_indice
+        else:
+            loss = (10*reg_ds_loss + 0.1*cls_ds_loss + centerness_ds_loss + 10*reg_us_loss + 0.1*cls_us_loss + centerness_us_loss)/(1+num_pos_indice)*10 + bg_loss
+
+        # print(reg_ds_loss.item()/(1+num_pos_indice)*10, cls_ds_loss.item()/(1+num_pos_indice)*10, centerness_ds_loss.item()/(1+num_pos_indice)*10)
+        # return loss , cls_us_loss/num_pos_indice
+        return loss, bg_loss
         
 
     def get_reg_gt(self, duration_list):

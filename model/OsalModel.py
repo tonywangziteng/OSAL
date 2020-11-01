@@ -1,6 +1,14 @@
 import torch
 import torch.nn as nn
 import json, pdb, math
+import itertools
+
+class Scaler(nn.Module):
+    def __init__(self, init_value=1.0):
+        super(Scaler, self).__init__()
+        self.scale = nn.Parameter(torch.FloatTensor([init_value]))
+    def forward(self, input):
+        return input * self.scale       
 
 class DownSample(nn.Module):
     """
@@ -20,15 +28,25 @@ class DownSample(nn.Module):
                 'down_sample_{}'.format(idx),
                 nn.Sequential(
                     nn.BatchNorm1d(in_dim),
+                    # nn.InstanceNorm1d(in_dim), 
                     nn.Conv1d(in_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1),
                     nn.ReLU(inplace=True),
+                    nn.BatchNorm1d(out_dim),
+                    nn.Conv1d(out_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1),
+                    nn.ReLU(inplace=True),
+                    nn.BatchNorm1d(out_dim),
                     nn.Conv1d(out_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1, stride=2),
                     nn.ReLU(inplace=True)
-                    # nn.MaxPool1d(kernel_size=3, stride=2, padding=1)
                 )
             )
             in_dim = out_dim
         self.submodule_names = list(self._modules.keys())
+
+        # he initialization
+        for module in self.modules():
+            # pdb.set_trace()
+            if isinstance(module, nn.Conv1d):
+                nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
 
     def forward(self, feature):
         feature_list = []
@@ -60,25 +78,43 @@ class DownSampleHead(nn.Module):
                 'truncate_{}'.format(idx), 
                 nn.Sequential(
                     nn.BatchNorm1d(in_dim), 
+                    # nn.InstanceNorm1d(in_dim),
                     nn.Conv1d(in_dim, out_dim, kernel_size=1),
                     nn.ReLU(inplace=True)
                 )
             )
+
         # shared head for cls and reg
         # cls output is 201 dim, cls number + bg
         self.cls_head = nn.Sequential(
             nn.BatchNorm1d(out_dim), 
             nn.Conv1d(out_dim, out_dim, kernel_size=1, padding=0), 
-            nn.ReLU(), 
-            nn.Conv1d(out_dim, 201, kernel_size=1, padding=0)
+            nn.Tanh(), 
+            nn.Conv1d(out_dim, 200, kernel_size=1, padding=0)
         )
+        
+        self.bg_head = nn.Sequential(
+            nn.BatchNorm1d(out_dim), 
+            nn.Conv1d(out_dim, out_dim//2, kernel_size=1, padding=0), 
+            nn.Tanh(), 
+            nn.Conv1d(out_dim//2, 1, kernel_size=1, padding=0)
+        )
+        
         # start, end , centerness
         self.reg_head = nn.Sequential(
             nn.BatchNorm1d(out_dim), 
             nn.Conv1d(out_dim, out_dim, kernel_size=1, padding=0), 
-            nn.ReLU(), 
+            nn.Tanh(), 
             nn.Conv1d(out_dim, 3, kernel_size=1, padding=0)
         )
+
+        self.scales = nn.ModuleList([Scaler(init_value=1.0) for _ in range(5)])
+
+        for module in self.modules():
+            if isinstance(module, nn.Conv1d):
+                nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')        
+        nn.init.constant(self.bg_head.state_dict()['3.bias'], -math.log(99))
+
 
     def forward(self, feature_list):
         out_list = []
@@ -89,12 +125,14 @@ class DownSampleHead(nn.Module):
             out_list.append(out)
         
         cls_list, reg_list = [], []
-        for feature in out_list:
+        for l, feature in enumerate(out_list):
+            # x = self.scales[l](self.cls_head(feature))
             x = self.cls_head(feature)
             # cls_result = torch.softmax(x[:, :200, :], dim=1)
-            cls_result = x[:, :200, :]
-            bg_result = torch.sigmoid(x[:, 200:, :])
-            reg_result = torch.tanh(self.reg_head(feature))
+            cls_result = x
+            bg_result = torch.sigmoid(self.bg_head(feature))
+            # bg_result = torch.sigmoid(x[:, 200:, :])
+            reg_result = self.scales[l](torch.tanh(self.reg_head(feature)))
             cls_list.append(torch.cat([cls_result, bg_result], dim=1))
             # pdb.set_trace()
             reg_list.append(reg_result)
@@ -117,6 +155,11 @@ class UpSample(nn.Module):
             )
             in_dim = out_dim
         self.submodule_names = list(self._modules.keys())
+
+        # he initialization
+        for module in self.modules():
+            if isinstance(module, (nn.Conv1d, nn.ConvTranspose1d)):
+                nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
 
     def forward(self, input_feature, feature_list):
         out_list = []
@@ -171,9 +214,30 @@ class UpSampleHead(nn.Module):
         # shared head for cls and reg
         # cls output is 201 dim, cls number + bg
         # 3 is the number of channels to be concatenated 
-        self.cls_head = nn.Conv1d(out_dim+3, 201, kernel_size=1, padding=0)
+        # cls output is 201 dim, cls number + bg
+        self.cls_head = nn.Sequential(
+            nn.BatchNorm1d(out_dim+3), 
+            nn.Conv1d(out_dim+3, out_dim, kernel_size=1, padding=0), 
+            nn.ReLU(), 
+            nn.Conv1d(out_dim, 200, kernel_size=1, padding=0)
+        )
+        
+        self.bg_head = nn.Sequential(
+            nn.BatchNorm1d(out_dim+3), 
+            nn.Conv1d(out_dim+3, out_dim//2, kernel_size=1, padding=0), 
+            nn.ReLU(), 
+            nn.Conv1d(out_dim//2, 1, kernel_size=1, padding=0)
+        )
+        
         # start, end , centerness
-        self.reg_head = nn.Conv1d(out_dim+3, 3, kernel_size=1, padding=0)
+        self.reg_head = nn.Sequential(
+            nn.BatchNorm1d(out_dim+3), 
+            nn.Conv1d(out_dim+3, out_dim, kernel_size=1, padding=0), 
+            nn.ReLU(), 
+            nn.Conv1d(out_dim, 3, kernel_size=1, padding=0)
+        )
+
+        self.scales = nn.ModuleList([Scaler(init_value=1.0) for _ in range(5)])
 
     def forward(self, feature_list, reg_list):
         feature_list = feature_list[::-1]
@@ -192,14 +256,17 @@ class UpSampleHead(nn.Module):
             merged_feature.append(feature)
 
         cls_list, reg_list = [], []
-        for feature in merged_feature:
+        for l, feature in enumerate(merged_feature):
+
             x = self.cls_head(feature)
             # cls_result = torch.softmax(x[:, :200, :], dim=1)
-            cls_result = x[:, :200, :]
-            bg_result = torch.sigmoid(x[:, 200:, :])
-            reg_result = torch.tanh(self.reg_head(feature))
+            cls_result = x
+            bg_result = torch.sigmoid(self.bg_head(feature))
+            # bg_result = torch.sigmoid(x[:, 200:, :])
+            reg_result = self.scales[l](torch.tanh(self.reg_head(feature)))
             cls_list.append(torch.cat([cls_result, bg_result], dim=1))
             reg_list.append(reg_result)
+
 
         return cls_list, reg_list
 
@@ -221,6 +288,10 @@ class OsalModel(nn.Module):
         self.up_sample = UpSample(config)
         self.up_sample_head = UpSampleHead(config)
         print(self)
+        # he initialization
+        for module in self.modules():
+            if isinstance(module, (nn.Conv1d, nn.ConvTranspose1d)):
+                nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
 
     def forward(self, feature):
         feature_list = self.down_sample(feature)
@@ -229,6 +300,20 @@ class OsalModel(nn.Module):
         cls_list_final, reg_list_final = self.up_sample_head(out_list, reg_list)
 
         return cls_list, reg_list, cls_list_final, reg_list_final
+
+    def get_ds_param(self):
+        return itertools.chain(self.down_sample.parameters(), self.down_sample_head.parameters())
+
+    def get_us_param(self):
+        return itertools.chain(self.up_sample.parameters(), self.up_sample_head.parameters())
+
+    def up_sample_init(self):
+        for m in self.up_sample.modules():
+            if isinstance(m, (nn.Conv1d, nn.ConvTranspose1d)):
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+        for m in self.up_sample_head.modules():
+            if isinstance(m, (nn.Conv1d, nn.ConvTranspose1d)):
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
 
 if __name__ == '__main__':
     model = OsalModel()

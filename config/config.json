@@ -4,13 +4,15 @@
     "video_info_path":"/home/e813/wzt_code/Pytorch-BMN/data/activitynet_annotations/video_info_new.csv", 
     "action_name_path":"/home/e813/wzt_code/Pytorch-BMN/data/activitynet_annotations/action_name.csv", 
     "checkpoint_dir":"/home/e813/wzt_code/weights",
-    "perceptive_fields":[5, 13, 29, 61, 125], 
+    "perceptive_fields":[-1, 7, 19, 43, 91, 200], 
     "feature_lens":[50, 25, 13, 7, 4],
+    "layer_weight":[16, 8, 4, 2, 1],
     "learning_rate":5e-4, 
     "weight_decay":1e-4, 
-    "step_size":8, 
+    "step_size":7, 
     "step_gamma":0.2, 
 
-    "bg_threshold":0.2, 
+    "bg_threshold":0.5, 
     "nms_threshold":0.5
 }
+

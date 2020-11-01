@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import pandas as pd
+import pdb
 
 from utils.iou_utils import iou_with_temporal_proposals
 
@@ -46,7 +47,7 @@ def soft_nms_proposal(df_proposal, alpha, t1, t2, num_return_proposal=100):
                 # Here we use Gaussian kernel as the function.
                 if iou > t1 + (t2 - t1) * length:
                     score[i] = score[i] * np.exp(-np.square(iou) / alpha)
-        
+
         t_start_return.append(t_start[max_index])
         t_end_return.append(t_end[max_index])
         score_return.append(score[max_index])
@@ -56,7 +57,8 @@ def soft_nms_proposal(df_proposal, alpha, t1, t2, num_return_proposal=100):
         t_end.pop(max_index)
         score.pop(max_index)
         idx.pop(max_index)
-
+        # pdb.set_trace()
+    #pdb.set_trace()
     return_df = pd.DataFrame()
     return_df['xmin'] = t_start_return
     return_df['xmax'] = t_end_return

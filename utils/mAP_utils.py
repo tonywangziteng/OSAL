@@ -201,7 +201,12 @@ def voc_eval(classidx,
     class_recs = {}
     npos = 0
     for vid_name in gt_dict:
+        # pdb.set_trace()
         R = [obj for obj in gt_dict[vid_name] if obj[-1] == classidx]
+        if len(R) > 0:
+            for x in test_preds:
+                if x[0]==vid_name:
+                    pdb.set_trace()
         bbox = np.array([x[:2] for x in R])
         det = [False] * len(R)
         npos += len(R)
@@ -211,6 +216,7 @@ def voc_eval(classidx,
     
     # 2. read and parse pred
     # pred lines: [video_name, new_start_time, new_end_time, score, class_idx]
+    # pdb.set_trace()
     pred = [x for x in test_preds if x[-1] == classidx and x[3] > score_thres]
     vid_names = [x[0] for x in pred]
     score = np.array([x[3] for x in pred])
@@ -232,6 +238,7 @@ def voc_eval(classidx,
     fp = np.zeros(nd)
 
     for d in range(nd):
+        # pdb.set_trace()
         R = class_recs[vid_names[d]]
         pb = PB[d, :]
         ovmax = -np.inf

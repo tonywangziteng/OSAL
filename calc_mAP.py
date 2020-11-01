@@ -11,8 +11,8 @@ test_preds_json_path = './output/result_proposal' + '.json'
 action_name_path = './output/action_name.csv'
 
 nms_thres = 0.01
-iou_thres = 0.2
-score_thres = 0.1
+iou_thres = 0.5
+score_thres = 0.3
 class_nb = 200
 
 # test_preds = json.load(open('./test_results_raw.json', 'r'))
@@ -29,6 +29,7 @@ print('Test Configs:\nNMS threshold: {}\nIoU threshold: {}\n'.format(nms_thres, 
 
 ap_t = 0.
 for ii in range(class_nb):
+    # pdb.set_trace()
     recall, precision, ap = voc_eval(ii, gt_dict, test_preds, iou_thres, score_thres)
     ap_t += ap
     # print('TEST: Class {:<2} [{:<17}]: Recall: {:.4f}, Precision: {:.4f}, AP: {:.4f}'.format(ii, class_map_dict_inv[ii], recall, precision, ap))

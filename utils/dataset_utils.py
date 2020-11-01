@@ -29,7 +29,7 @@ class OsalDataset(Dataset):
         anno_path = cfg['anno_path'] 
         video_info_path = cfg['video_info_path'] 
         action_name_path = cfg['action_name_path']
-        self.perceptive_fields = np.array(cfg['perceptive_fields'])/100. 
+        self.perceptive_fields = np.array(cfg['perceptive_fields'])/200. 
         self.feature_len = cfg['feature_lens']
         # self.perceptive_fields[-1] = 1.
 
@@ -60,6 +60,8 @@ class OsalDataset(Dataset):
         # load action names
         action_name = pandas.read_csv(action_name_path)
         self.action_name = action_name['action'].tolist()
+        self.index_map = self.get_index_map()
+        self.origin_map = self.get_origin_map()
 
     def calc_gt(self, video_name:str):
         """
@@ -78,7 +80,6 @@ class OsalDataset(Dataset):
         # initialize cls_list
         cls_gt = []
         boundary_list = []
-        layer_index_list = []
         cls_list = []
         for length in self.feature_len:
             cls_gt.append(np.zeros((2, length)))
@@ -87,21 +88,30 @@ class OsalDataset(Dataset):
             action_name = anno['label']
             name_index = self.action_name.index(action_name)
             start_time = max((min(1, anno['segment'][0]/video_feature_second)), 0)
-            start_idx = int(start_time * 100) 
             end_time = max((min(1, anno['segment'][1]/video_feature_second)), 0)
-            end_idx = int(end_time * 100)
-            
-            # get layer number and 
-            layer_idx = self.allocate_layer(start_time, end_time)
-            layer_index_list.append(layer_idx)
-            start_idx = start_idx//2**(layer_idx+1) + start_idx//2**(layer_idx)%2
-            end_idx = end_idx//2**(layer_idx+1) + end_idx//2**(layer_idx)%2
 
-            cls_gt[layer_idx][0, start_idx:end_idx+1] = name_index
-            cls_gt[layer_idx][1, start_idx:end_idx+1] = 1
+            # get the layer where the 
+            anno_layer_index = 0
+            for i in range(5):
+                start = self.origin_map[i]-start_time
+                end = end_time - self.origin_map[i]
+                start_end = np.stack([start, end], -1)
+                is_above_layer = \
+                    (start_end.max(-1)>self.perceptive_fields[i]) & \
+                    (start_end.max(-1)<self.perceptive_fields[i+1]) & \
+                    (start_end.min(-1)>0)
+                    
+                if is_above_layer.any():
+                    anno_layer_index = i
+            # bg ground truth
+            for i in range(len(self.index_map)):
+                if i > anno_layer_index:
+                    continue
+                cls_gt[i][0, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = name_index
+                cls_gt[i][1, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = 1
+            
             boundary_list.append((start_time, end_time))
             cls_list.append(name_index)
-            # pdb.set_trace()
         
         return cls_gt, boundary_list, cls_list
 
@@ -116,6 +126,25 @@ class OsalDataset(Dataset):
                 return i
         return i
 
+    def get_index_map(self):
+        index_map = []
+        divides = [50, 25, 13, 7, 4]
+        origin_index = np.arange(100)
+        for i in range(5):
+            index_in_layer = np.floor(origin_index / (100./divides[i])) 
+            index_map.append(index_in_layer.astype(np.int))
+        # pdb.set_trace()
+        return index_map
+
+    def get_origin_map(self):
+        origin_map = []
+        for feature_len in self.feature_len:
+            mapping = np.arange(feature_len)
+            time_gap = 100//feature_len
+            mapping = mapping*time_gap + time_gap//2
+            origin_map.append(mapping/100.)
+        return origin_map
+
     def __getitem__(self, index):
         video_name = self.video_name_list[index]
         feature = pandas.read_csv(osp.join(self.data_dir, video_name+'.csv'))
@@ -123,6 +152,7 @@ class OsalDataset(Dataset):
         
         # calculate ground truth
         cls_gt, boundary_list, cls_list = self.calc_gt(video_name)
+        # pdb.set_trace()
 
         # feature: batch_size * len(100) * feature_depth(400)
         if self.mode == 'testing':

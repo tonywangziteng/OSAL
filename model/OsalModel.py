@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import json, pdb, math
 import itertools
+from collections import OrderedDict
+from tensorboardX import SummaryWriter
 
 class Scaler(nn.Module):
     def __init__(self, init_value=1.0):
@@ -27,16 +29,18 @@ class DownSample(nn.Module):
             self.add_module(
                 'down_sample_{}'.format(idx),
                 nn.Sequential(
-                    nn.BatchNorm1d(in_dim),
-                    # nn.InstanceNorm1d(in_dim), 
+                    
                     nn.Conv1d(in_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1),
-                    nn.ReLU(inplace=True),
                     nn.BatchNorm1d(out_dim),
+                    nn.LeakyReLU(inplace=True),
+                    
                     nn.Conv1d(out_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1),
-                    nn.ReLU(inplace=True),
                     nn.BatchNorm1d(out_dim),
+                    nn.LeakyReLU(inplace=True),
+                    
                     nn.Conv1d(out_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1, stride=2),
-                    nn.ReLU(inplace=True)
+                    nn.BatchNorm1d(out_dim),
+                    nn.LeakyReLU(inplace=True)
                 )
             )
             in_dim = out_dim
@@ -46,7 +50,7 @@ class DownSample(nn.Module):
         for module in self.modules():
             # pdb.set_trace()
             if isinstance(module, nn.Conv1d):
-                nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
+                nn.init.kaiming_normal_(module.weight, mode='fan_in')
 
     def forward(self, feature):
         feature_list = []
@@ -156,6 +160,13 @@ class UpSample(nn.Module):
             in_dim = out_dim
         self.submodule_names = list(self._modules.keys())
 
+        in_dim = cfg['in_dim']
+        self.merge_0 = nn.Sequential(
+            nn.Conv1d(in_dim, in_dim, kernel_size=1, stride=1, padding=0),
+            nn.BatchNorm1d(in_dim), 
+            nn.LeakyReLU()
+        )
+
         # he initialization
         for module in self.modules():
             if isinstance(module, (nn.Conv1d, nn.ConvTranspose1d)):
@@ -163,6 +174,7 @@ class UpSample(nn.Module):
 
     def forward(self, input_feature, feature_list):
         out_list = []
+        input_feature = self.merge_0(input_feature) + input_feature
         out_list.append(input_feature)
         feature = input_feature
         for idx, module_name in enumerate(self.submodule_names):
@@ -178,16 +190,35 @@ class MergeModule(nn.Module):
     '''
     def __init__(self, in_dim, out_dim, out_padding):
         super(MergeModule, self).__init__()
-        self.origin_branch_1 = nn.ConvTranspose1d(in_dim, out_dim, kernel_size=3, stride=1, padding=1, output_padding=0)
-        self.origin_branch_2 = nn.ConvTranspose1d(out_dim, out_dim, kernel_size=3, stride=2, padding=1, output_padding=out_padding)
-        self.Unet_branch = nn.Conv1d(out_dim, out_dim, kernel_size=1, stride=1)
-        self.merge_conv = nn.Conv1d(out_dim, out_dim, 3, stride=1, padding=1)
+        self.origin_branch_1 = nn.Sequential(
+            nn.ConvTranspose1d(in_dim, out_dim, kernel_size=3, stride=1, padding=1, output_padding=0),
+            nn.BatchNorm1d(out_dim),
+            nn.LeakyReLU()
+        )
+        self.origin_branch_2 = nn.Sequential(
+            nn.ConvTranspose1d(out_dim, out_dim, kernel_size=3, stride=2, padding=1, output_padding=out_padding), 
+            nn.BatchNorm1d(out_dim),
+            nn.Tanh()
+        )
+        # self.origin_branch_2 = nn.ConvTranspose1d(out_dim, out_dim, kernel_size=3, stride=2, padding=1, output_padding=out_padding)
+        self.Unet_branch = nn.Sequential(
+            nn.Conv1d(out_dim, out_dim, kernel_size=1, stride=1),
+            nn.BatchNorm1d(out_dim),
+            nn.Tanh()
+        )
+    
+        self.merge_conv = nn.Sequential(
+            nn.Conv1d(out_dim, out_dim, 3, stride=1, padding=1),
+            nn.BatchNorm1d(out_dim),
+            nn.LeakyReLU()
+        )
+        
 
     def forward(self, origin_input, Unet_input):
-        origin_output = torch.relu(self.origin_branch_1(origin_input)) 
-        origin_output = torch.relu(self.origin_branch_2(origin_output)) 
+        origin_output = self.origin_branch_1(origin_input)
+        origin_output = self.origin_branch_2(origin_output)
+
         Unet_output = self.Unet_branch(Unet_input)
-        # pdb.set_trace()
         merged_input = Unet_output + origin_output
         merged_output = self.merge_conv(merged_input)
         
@@ -208,7 +239,8 @@ class UpSampleHead(nn.Module):
                 'truncate_{}'.format(idx), 
                 nn.Sequential(
                     nn.Conv1d(in_dim, out_dim, kernel_size=1),
-                    nn.ReLU(inplace=True)
+                    nn.BatchNorm1d(out_dim),
+                    nn.LeakyReLU(inplace=True)
                 )
             )
         # shared head for cls and reg
@@ -216,30 +248,33 @@ class UpSampleHead(nn.Module):
         # 3 is the number of channels to be concatenated 
         # cls output is 201 dim, cls number + bg
         self.cls_head = nn.Sequential(
-            nn.BatchNorm1d(out_dim+3), 
-            nn.Conv1d(out_dim+3, out_dim, kernel_size=1, padding=0), 
-            nn.ReLU(), 
-            nn.Conv1d(out_dim, 200, kernel_size=1, padding=0)
+            nn.Conv1d(out_dim, out_dim, kernel_size=1, padding=0), 
+            nn.BatchNorm1d(out_dim), 
+            nn.Tanh(), 
+            nn.Conv1d(out_dim, 201, kernel_size=1, padding=0)
         )
         
-        self.bg_head = nn.Sequential(
-            nn.BatchNorm1d(out_dim+3), 
-            nn.Conv1d(out_dim+3, out_dim//2, kernel_size=1, padding=0), 
-            nn.ReLU(), 
-            nn.Conv1d(out_dim//2, 1, kernel_size=1, padding=0)
-        )
+        # self.bg_head = nn.Sequential(
+        #     nn.Conv1d(out_dim, out_dim, kernel_size=1, padding=0), 
+        #     nn.BatchNorm1d(out_dim), 
+        #     nn.Tanh(), 
+        #     nn.Conv1d(out_dim, 1, kernel_size=1, padding=0)
+        # )
         
         # start, end , centerness
         self.reg_head = nn.Sequential(
-            nn.BatchNorm1d(out_dim+3), 
-            nn.Conv1d(out_dim+3, out_dim, kernel_size=1, padding=0), 
+            nn.Conv1d(out_dim, out_dim, kernel_size=1, padding=0), 
+            nn.BatchNorm1d(out_dim),
             nn.ReLU(), 
-            nn.Conv1d(out_dim, 3, kernel_size=1, padding=0)
+            nn.Conv1d(out_dim, 3, kernel_size=1, padding=0),
         )
 
         self.scales = nn.ModuleList([Scaler(init_value=1.0) for _ in range(5)])
+        for module in self.modules():
+            if isinstance(module, nn.Conv1d):
+                nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')        
 
-    def forward(self, feature_list, reg_list):
+    def forward(self, feature_list):
         feature_list = feature_list[::-1]
         out_list = []
         # truncate all the features to a specific channel
@@ -248,25 +283,18 @@ class UpSampleHead(nn.Module):
             module = getattr(self, name)
             out = module(feature)
             out_list.append(out)
-        
-        # merge the features from out_list and reg_list
-        merged_feature = []
-        for out_feature, reg_feature in zip(out_list, reg_list):
-            feature = torch.cat([out_feature, reg_feature], dim=1)
-            merged_feature.append(feature)
 
         cls_list, reg_list = [], []
-        for l, feature in enumerate(merged_feature):
+        for l, feature in enumerate(out_list):
 
-            x = self.cls_head(feature)
-            # cls_result = torch.softmax(x[:, :200, :], dim=1)
-            cls_result = x
-            bg_result = torch.sigmoid(self.bg_head(feature))
-            # bg_result = torch.sigmoid(x[:, 200:, :])
-            reg_result = self.scales[l](torch.tanh(self.reg_head(feature)))
-            cls_list.append(torch.cat([cls_result, bg_result], dim=1))
+            # x = self.cls_head(feature)
+            x = torch.sigmoid(self.cls_head(feature)) 
+
+            # bg_result = torch.sigmoid(self.bg_head(feature))
+            # cls_list.append(torch.cat([x, bg_result], dim=1))
+            reg_result = self.scales[l](torch.exp(self.reg_head(feature)))
+            cls_list.append(x)
             reg_list.append(reg_result)
-
 
         return cls_list, reg_list
 
@@ -277,29 +305,29 @@ class OsalModel(nn.Module):
         self.temp_scale = 100
         self.input_dim = 400
 
-        config_path = './model/model_cfg.json'
+        config_path = '/home/e813/wzt_code/wzt_OSAL/model/model_cfg.json'
         try:
             f = open(config_path)
             config = json.load(f)
         except IOError:
             print('Model Building Error: errors occur when loading config file from '+config_path)
         self.down_sample = DownSample(config)
-        self.down_sample_head = DownSampleHead(config)
+        # self.down_sample_head = DownSampleHead(config)
         self.up_sample = UpSample(config)
         self.up_sample_head = UpSampleHead(config)
         print(self)
         # he initialization
         for module in self.modules():
             if isinstance(module, (nn.Conv1d, nn.ConvTranspose1d)):
-                nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
+                nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='leaky_relu')
 
     def forward(self, feature):
         feature_list = self.down_sample(feature)
-        cls_list, reg_list = self.down_sample_head(feature_list)
+        # cls_list, reg_list = self.down_sample_head(feature_list)
         out_list = self.up_sample(feature_list[-1], feature_list)
-        cls_list_final, reg_list_final = self.up_sample_head(out_list, reg_list)
+        cls_list_final, reg_list_final = self.up_sample_head(out_list)
 
-        return cls_list, reg_list, cls_list_final, reg_list_final
+        return cls_list_final, reg_list_final
 
     def get_ds_param(self):
         return itertools.chain(self.down_sample.parameters(), self.down_sample_head.parameters())
@@ -317,3 +345,6 @@ class OsalModel(nn.Module):
 
 if __name__ == '__main__':
     model = OsalModel()
+    input_ = torch.ones((2, 400 ,100))
+    writer = SummaryWriter("/home/e813/wzt_code/wzt_OSAL/model/result",comment='OSAL2')
+    writer.add_graph(model, input_, True)

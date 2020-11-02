@@ -47,7 +47,7 @@ if __name__ == "__main__":
 
     # load_model
     weight_dir = config['checkpoint_dir']
-    weight_path = osp.join(weight_dir, 'down_sample_3/epoch9_15.118948492705318_adam_param.pth.tar')
+    weight_path = osp.join(weight_dir, 'iou_cheat2/epoch9_17.220708085397376_adam_param.pth.tar')
     checkpoint = torch.load(weight_path)
 
     model.load_state_dict(checkpoint['state_dict'])
@@ -70,7 +70,7 @@ if __name__ == "__main__":
     mapping = get_origin_map()
     for features, cls_gt_list, duration_list, video_name_list in pbar:
         features = features.float().to(device)
-        cls_list, reg_list, cls_list_final, reg_list_final = model(features)
+        cls_list, reg_list = model(features)
         raw_result = {}
         raw_result['video_name'] = video_name_list[0]
 
@@ -78,8 +78,8 @@ if __name__ == "__main__":
             # get raw result in this layer
             cls_ds = cls_list[layer_index][0].detach().cpu().numpy()
             reg_ds = np.clip(reg_list[layer_index][0].detach().cpu().numpy(), 0, 1) 
-            cls_us = cls_list_final[layer_index][0].detach().cpu().numpy()
-            reg_us = np.clip(reg_list_final[layer_index][0].detach().cpu().numpy(), 0, 1) 
+            # cls_us = cls_list_final[layer_index][0].detach().cpu().numpy()
+            # reg_us = np.clip(reg_list_final[layer_index][0].detach().cpu().numpy(), 0, 1) 
 
             # cls_result = np.power(cls_ds * cls_us, 0.5) 
             cls_result = cls_ds
@@ -87,7 +87,7 @@ if __name__ == "__main__":
             fg_result = cls_result[200]
             start_bias = reg_ds[0]
             end_bias = reg_ds[1]
-
+# 
             fg_indice = \
                 (np.max(reg_ds[:2, :], 0)> perceptive_fields[layer_index]) & \
                 (np.max(reg_ds[:2, :], 0)< perceptive_fields[layer_index+1]) &\
@@ -105,7 +105,7 @@ if __name__ == "__main__":
             # end_delta = reg_us[1, fg_indice[:, 0]]
             start = base_point - start_bias# + start_delta
             end = base_point + end_bias# + end_delta
-
+            pdb.set_trace()
             print('ground truth duration', duration_list)
             print('predicted durations: ', np.stack([start, end], axis=-1))
             print('ground_truth class', cls_gt_list)

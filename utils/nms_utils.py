@@ -25,18 +25,18 @@ def soft_nms_proposal(df_proposal, alpha, t1, t2, num_return_proposal=100):
 
     # len(t_start) == len(t_end) == num_proposals
     # Directly concate corresponding element of 't_start' and 't_end' to get initial proposals.
+    # columns = ["xmin", "xmax", "score" ,"cls_idx"]
     t_start = list(proposal_information.xmin.values[:])
     t_end = list(proposal_information.xmax.values[:])
     score = list(proposal_information.score.values[:])
     idx = list(proposal_information.cls_idx.values[:])
-
 
     t_start_return = []
     t_end_return = []
     score_return = []
     cls_idx_return = []
 
-    while len(score) > 1 and len(score_return) < num_return_proposal:
+    while len(score) > 0 and len(score_return) < num_return_proposal:
         max_index = score.index(max(score))
         ious = iou_with_temporal_proposals(np.array(t_start), np.array(t_end), t_start[max_index], t_end[max_index])
         for i in range(len(score)):
@@ -57,7 +57,6 @@ def soft_nms_proposal(df_proposal, alpha, t1, t2, num_return_proposal=100):
         t_end.pop(max_index)
         score.pop(max_index)
         idx.pop(max_index)
-        # pdb.set_trace()
     #pdb.set_trace()
     return_df = pd.DataFrame()
     return_df['xmin'] = t_start_return

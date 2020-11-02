@@ -14,7 +14,6 @@ import torch.optim as optim
 from tqdm import tqdm
 import argparse
 import matplotlib.pyplot as plt
-from collections import OrderedDict
 import os.path as osp
 import itertools
 
@@ -28,7 +27,7 @@ args = parser.parse_args()
 
 # GPU setting.
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # range GPU in order
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"            
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"            
 
 # Basic test.
 print("Pytorch's version is {}.".format(torch.__version__))
@@ -67,16 +66,16 @@ if __name__ == "__main__":
     # model = nn.DataParallel(model).cuda()
     lossfn = LossCalculator(config, device)
 
-    if not args.train_upsample:
-        optimizer = optim.Adam(model.get_ds_param(), lr=config['learning_rate'], weight_decay=config['weight_decay'])
-    else:
-        weight_dir = config['checkpoint_dir']
-        weight_path = osp.join(weight_dir, 'down_sample_3/epoch9_15.118948492705318_adam_param.pth.tar')
-        checkpoint = torch.load(weight_path)
-        model.load_state_dict(checkpoint['state_dict'])
-        optimizer = optim.Adam(model.get_us_param(), lr=config['learning_rate'], weight_decay=config['weight_decay'])
-        model.up_sample_init()
-    # optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config['learning_rate'], weight_decay=config['weight_decay'])
+    # if not args.train_upsample:
+    #     optimizer = optim.Adam(model.get_ds_param(), lr=config['learning_rate'], weight_decay=config['weight_decay'])
+    # else:
+    #     weight_dir = config['checkpoint_dir']
+    #     weight_path = osp.join(weight_dir, 'down_sample_3/epoch9_15.118948492705318_adam_param.pth.tar')
+    #     checkpoint = torch.load(weight_path)
+    #     model.load_state_dict(checkpoint['state_dict'])
+    #     optimizer = optim.Adam(model.get_us_param(), lr=config['learning_rate'], weight_decay=config['weight_decay'])
+    #     model.up_sample_init()
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config['learning_rate'], weight_decay=config['weight_decay'])
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=config['step_size'], gamma=config['step_gamma'])
 
     # load_model
@@ -96,7 +95,8 @@ if __name__ == "__main__":
     valid_best_loss = float('inf')
     clip_len_list = config['feature_lens']
     train_loss_list = []
-    loss_labels = ['background', 'down_sample_regression', 'down_sample_classification', 'down_sample_centerness']
+    # loss_labels = ['background', 'down_sample_regression', 'down_sample_classification', 'down_sample_centerness']
+    loss_labels = ['down_sample_regression', 'down_sample_classification', 'down_sample_centerness']
     losses_list = [[], [], [], []]
     valid_idx = []
     valid_loss = []
@@ -115,14 +115,14 @@ if __name__ == "__main__":
         cnt = 0
         for raw_feature, cls_gt, duration_list, video_names in pbar:
             # cnt+=1
-            # if cnt == 300:
+            # if cnt == 30:
             #     break
             
             optimizer.zero_grad()
             raw_feature = raw_feature.to(device)
-            cls_list, reg_list, cls_list_final, reg_list_final = model(raw_feature)
+            cls_list_final, reg_list_final = model(raw_feature)
 
-            loss, debug_loss = lossfn.calc_loss(cls_list, reg_list, cls_list_final, reg_list_final, cls_gt, duration_list, args.train_upsample, epoch)
+            loss, debug_loss = lossfn.calc_loss(cls_list_final, reg_list_final, cls_gt, duration_list, args.train_upsample, epoch)
 
             loss.backward()
             optimizer.step() 
@@ -137,7 +137,7 @@ if __name__ == "__main__":
                 for index, label in enumerate(loss_labels):
                     new_loss_ = losses_list[index][-1]*0.9 + 0.1*debug_loss[index].detach().cpu().item()
                     losses_list[index].append(new_loss_)
-            pbar.set_description('loss={:.4f}'.format(loss.detach().cpu().item()))
+            pbar.set_description('loss={:.4f} reg={:4f}'.format(loss.detach().cpu().item(), debug_loss[1].detach().cpu().item()))
 
             if len(train_loss_list)%10 == 0 and len(train_loss_list)!=0:
                 # plt.close()
@@ -164,14 +164,15 @@ if __name__ == "__main__":
             pbar = tqdm(valid_dataloader)
             cnt = 0
             for raw_feature, cls_gt, duration_list, video_names in pbar:
-                cnt+=1
-                if cnt==1181:
-                    break
+                # cnt+=1
+                # # if cnt==1181:
+                # if cnt==11:
+                #     break
 
                 raw_feature = raw_feature.to(device)
-                cls_list, reg_list, cls_list_final, reg_list_final = model(raw_feature)
+                cls_list_final, reg_list_final = model(raw_feature)
 
-                loss, debug_loss = lossfn.calc_loss(cls_list, reg_list, cls_list_final, reg_list_final, cls_gt, duration_list, args.train_upsample, epoch)
+                loss, debug_loss = lossfn.calc_loss(cls_list_final, reg_list_final, cls_gt, duration_list, args.train_upsample, epoch)
                 # pdb.set_trace()
                 loss_list.append(loss.detach().item())
 
@@ -200,7 +201,8 @@ if __name__ == "__main__":
             plt.close()
 
 
-        if epoch_valid_loss_ < valid_best_loss:
+        # if epoch_valid_loss_ < valid_best_loss:
+        if True:
             # Save parameters.
             checkpoint = {'state_dict': model.state_dict(),
                           'optimizer': optimizer.state_dict(),

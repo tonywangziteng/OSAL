@@ -6,7 +6,6 @@ import os
 import json
 from datetime import datetime
 
-# TODO: aumotacially compute ratio
 # ratio=0.03
 def sample_train(train_path, new_train_path, ratio=0.3):
 	f1 = open(train_path, 'r')

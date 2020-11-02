@@ -43,10 +43,11 @@ class OsalDataset(Dataset):
         
         # load dataset information
         all_info = pandas.read_csv(video_info_path)
-        m = self.mode
-        if m == 'testing':
-            m = 'validation'
-        self.data_info = all_info[all_info.subset == m]
+        if self.mode == 'training':
+            self.data_info = all_info[all_info.subset.isin(['training', 'validation'])]
+        elif self.mode == 'validation' or 'testing':
+            self.data_info = all_info[all_info.subset == 'validation']
+
         self.video_name_list = self.data_info.video.tolist()
 
         # load annotations 
@@ -82,7 +83,8 @@ class OsalDataset(Dataset):
         boundary_list = []
         cls_list = []
         for length in self.feature_len:
-            cls_gt.append(np.zeros((2, length)))
+            # cls_gt.append(np.zeros((2, length))) # 多分类
+            cls_gt.append(np.zeros((201, length)))
 
         for anno in video_anno:
             action_name = anno['label']
@@ -90,7 +92,7 @@ class OsalDataset(Dataset):
             start_time = max((min(1, anno['segment'][0]/video_feature_second)), 0)
             end_time = max((min(1, anno['segment'][1]/video_feature_second)), 0)
 
-            # get the layer where the 
+            # get the layer where the ground truth belongs to
             anno_layer_index = 0
             for i in range(5):
                 start = self.origin_map[i]-start_time
@@ -103,12 +105,41 @@ class OsalDataset(Dataset):
                     
                 if is_above_layer.any():
                     anno_layer_index = i
+
             # bg ground truth
+            # TODO: 分类正样本由IOU确定
             for i in range(len(self.index_map)):
-                if i > anno_layer_index:
-                    continue
-                cls_gt[i][0, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = name_index
-                cls_gt[i][1, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = 1
+                # if i > anno_layer_index:
+                #     continue
+                # 多分类
+                # cls_gt[i][0, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = name_index
+                
+                # 二分类
+
+                # 在这一层并且在某一个动作片断中
+                # start = self.origin_map[i]-start_time
+                # end = end_time - self.origin_map[i]
+                # start_end = np.stack([start, end], -1)  
+                # is_in_layer = \
+                #     (start_end.max(-1)>self.perceptive_fields[i]) & \
+                #     (start_end.max(-1)<self.perceptive_fields[i+1]) & \
+                #     (start_end.min(-1)>0)
+                # pos_indices = is_in_layer.nonzero()
+
+                start = self.origin_map[i] - self.perceptive_fields[i+1]
+                end = self.origin_map[i] + self.perceptive_fields[i+1]
+                start = np.clip(start, 0, 1)
+                end = np.clip(end, 0, 1)
+                ious = self.calc_iou(start, end, start_time, end_time)
+                # pdb.set_trace()
+                pos_indices = (ious>0.5).nonzero()[0]
+
+                for indice in pos_indices:
+                    cls_gt[i][name_index, indice] = 1
+                    cls_gt[i][200, indice] = 1
+                # pdb.set_trace()
+                # cls_gt[i][name_index, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = 1
+                # cls_gt[i][200, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = 1
             
             boundary_list.append((start_time, end_time))
             cls_list.append(name_index)
@@ -125,6 +156,15 @@ class OsalDataset(Dataset):
             if duration < self.perceptive_fields[i]:
                 return i
         return i
+
+    def calc_iou(self, start, end, gt_start, gt_end):
+        start_min = np.where(start<gt_start, start, gt_start)
+        start_max = np.where(start>gt_start, start, gt_start)
+        end_min = np.where(end<gt_end, end, gt_end)
+        end_max = np.where(end>gt_end, end, gt_end)
+        intersection = end_min-start_max
+        union = end_max - start_min
+        return np.clip(intersection*1.0/union, 0, 1)
 
     def get_index_map(self):
         index_map = []

@@ -7,7 +7,6 @@ import json
 from datetime import datetime
 import pdb
 
-# TODO: aumotacially compute ratio
 # ratio=0.03
 def sample_train(train_path, new_train_path, ratio=0.3):
 	f1 = open(train_path, 'r')
@@ -203,10 +202,10 @@ def voc_eval(classidx,
     for vid_name in gt_dict:
         # pdb.set_trace()
         R = [obj for obj in gt_dict[vid_name] if obj[-1] == classidx]
-        if len(R) > 0:
-            for x in test_preds:
-                if x[0]==vid_name:
-                    pdb.set_trace()
+        # if len(R) > 0:
+        #     for x in test_preds:
+        #         if x[0]==vid_name:
+        #             pdb.set_trace()
         bbox = np.array([x[:2] for x in R])
         det = [False] * len(R)
         npos += len(R)

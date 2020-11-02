@@ -12,7 +12,7 @@ action_name_path = './output/action_name.csv'
 
 nms_thres = 0.01
 iou_thres = 0.5
-score_thres = 0.3
+score_thres = 0
 class_nb = 200
 
 # test_preds = json.load(open('./test_results_raw.json', 'r'))

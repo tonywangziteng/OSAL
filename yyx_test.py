@@ -15,7 +15,7 @@ from model.OsalModel import OsalModel
 from utils.nms_utils import soft_nms_proposal
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # range GPU in order
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"     
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"     
 
 def get_origin_map():
         origin_map = []
@@ -58,7 +58,8 @@ if __name__=="__main__":
     perceptive_fields = np.array(perceptive_fields) / 200.
     weight_dir = config['checkpoint_dir']
     print(weight_dir)
-    weight_path = osp.join(weight_dir, 'iou_cheat2/epoch9_17.220708085397376_adam_param.pth.tar')
+    weight_path = osp.join(weight_dir, 'final_1/epoch37_2.4789055251591914_adam_param.pth.tar')
+    # weight_path = osp.join(weight_dir, 'final_0/epoch21_2.2006613994411204_adam_param.pth.tar')
     print(weight_path)
     checkpoint = torch.load(weight_path)
 
@@ -74,7 +75,7 @@ if __name__=="__main__":
         model.eval()
         for idx, (raw_feature, cls_gt, duration_list, video_name) in enumerate(test_dataloader): 
             raw_feature = raw_feature.cuda()
-            cls_list_dn_raw, reg_list_dn_raw,  = model(raw_feature)        
+            cls_list_dn_raw, reg_list_dn_raw, start_end  = model(raw_feature)        
             
             prd_res = [] # initialize the prediction list
 
@@ -92,17 +93,34 @@ if __name__=="__main__":
             reg_expanded = torch.cat(reg_list_dn_raw, -1).squeeze(0).detach().cpu().numpy()
                 
             '''Find background and foreground'''
+            start_end = start_end[0].detach().cpu().numpy()
             cls_result = cls_expanded[:200] # 多分类
             fg_result = cls_expanded[200]# * reg_expanded[2] # 二分类 * centerness
-            fg_result_regularized = standarize(fg_result)
+
+            # fg_result_regularized = standarize(fg_result)
             # pdb.set_trace()
             # fg_result = cls_expanded[200] * reg_expanded[2] * cls_result.max(0)
             reg_result = reg_expanded[:2]
 
+            start = origin_map_extended - reg_result[0]
+            start = np.clip(start, 0, 1)
+            end = origin_map_extended + reg_result[1]
+            end = np.clip(end, 0, 1)
+
+            start_idx_floor = np.floor(start*100).astype(np.int)
+            start_idx_floor[start_idx_floor==100] = 99
+            start_score = start_end[0, start_idx_floor]
+            
+            end_idx_floor = np.floor(end*100).astype(np.int)
+            end_idx_floor[end_idx_floor==100] = 99
+            end_score = start_end[1, end_idx_floor]
+
+            fg_result = fg_result * np.sqrt(start_score * end_score)
+
             fg_pos = \
                 (np.max(reg_result, axis=0) > perceptive_bounds_expanded[:, 0]) & \
                 (np.max(reg_result, axis=0) < perceptive_bounds_expanded[:, 1]) & \
-                (fg_result_regularized > config['bg_threshold'])
+                (fg_result > config['bg_threshold'])
             fg_indice = fg_pos.nonzero()
 
             cls_positive = cls_result[:, fg_pos]
@@ -117,13 +135,13 @@ if __name__=="__main__":
 
                 # score = reg_list[2, i]  #centerness
                 # score = fg_result[i_pos] # foreground and background
-                score = fg_result_regularized[i_pos]
+                score = fg_result[i_pos]
                 cls_idx = cls_each[i]
 
                 proposals.append([xmin, xmax, score, cls_idx]) #根据index_each给每个位置打分
                             
-            alpha = 0.5
-            t1 = 0.5 # lower threshold
+            alpha = 0.2
+            t1 = 0.1 # lower threshold
             t2 = 0.002 # higher threshold
             # proposals = torch.from_numpy(proposals)
             columns = ["xmin", "xmax", "score" ,"cls_idx"]
@@ -135,6 +153,13 @@ if __name__=="__main__":
             for i in range(len(nms_res['xmin'])):
                 prd_res.append([video_name[0], nms_res['xmin'][i], nms_res['xmax'][i], nms_res['score'][i], int(nms_res['cls_idx'][i])])
             
+            print('----'*10)
+            print('ground truth bounding box: ', duration_list[0])
+            print('ground truth class: ', cls_gt[0])
+            print(nms_res)
+            print('----'*10)
+            
+            pdb.set_trace()
             print("length of prd_res for video %d :" % idx, len(prd_res))
             if not len(prd_res):
                 continue

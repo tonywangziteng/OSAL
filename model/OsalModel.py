@@ -298,6 +298,23 @@ class UpSampleHead(nn.Module):
 
         return cls_list, reg_list
 
+class StartEndHead(nn.Module):
+    def __init__(self, config):
+        super(StartEndHead, self).__init__()
+        self.merge = MergeModule(512, 400, 1)
+        self.head = nn.Sequential(
+            nn.Conv1d(in_channels=400, out_channels=400, kernel_size=1, padding=0), 
+            nn.BatchNorm1d(400), 
+            nn.Tanh(), 
+            nn.Conv1d(in_channels=400, out_channels=2, kernel_size=1, padding=0),
+            nn.Sigmoid()
+        )
+
+    def forward(self, init_feature, last_feature):
+        x = self.merge(last_feature, init_feature)
+        start_end = self.head(x)
+        return start_end
+
 
 class OsalModel(nn.Module):
     def __init__(self):
@@ -315,6 +332,7 @@ class OsalModel(nn.Module):
         # self.down_sample_head = DownSampleHead(config)
         self.up_sample = UpSample(config)
         self.up_sample_head = UpSampleHead(config)
+        self.start_end_head = StartEndHead(config)
         print(self)
         # he initialization
         for module in self.modules():
@@ -326,8 +344,9 @@ class OsalModel(nn.Module):
         # cls_list, reg_list = self.down_sample_head(feature_list)
         out_list = self.up_sample(feature_list[-1], feature_list)
         cls_list_final, reg_list_final = self.up_sample_head(out_list)
+        start_end = self.start_end_head(feature, out_list[-1])
 
-        return cls_list_final, reg_list_final
+        return cls_list_final, reg_list_final, start_end
 
     def get_ds_param(self):
         return itertools.chain(self.down_sample.parameters(), self.down_sample_head.parameters())

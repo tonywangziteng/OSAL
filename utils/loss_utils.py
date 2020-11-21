@@ -46,10 +46,11 @@ class LossCalculator():
         self.index_map = self.get_index_map()
 
     def calc_loss(
-        self,cls_list_final, reg_list_final, 
-        cls_gt_, duration_list, train_us, epoch_num
+        self,cls_list_final, reg_list_final, start_end, 
+        cls_gt_, duration_list, start_end_gt, 
     ):
         reg_gt_list, positive_indices = self.get_reg_gt(duration_list)
+        start_end_gt = start_end_gt.to(self.device)
         cls_gt_list = cls_gt_
         for i in range(len(cls_gt_list)):
             cls_gt_list[i] = cls_gt_list[i].to(self.device)
@@ -88,8 +89,11 @@ class LossCalculator():
             # pdb.set_trace()
             cls_us_loss += self.focal_loss(cls_list_final[layer_idx], cls_gt_list[layer_idx])
 
-        loss = (10*reg_us_loss + centerness_us_loss)/(1+num_pos_indice)*10  + cls_us_loss*500
-        return loss, (100*reg_us_loss/num_pos_indice, cls_us_loss*500, 10*centerness_us_loss/num_pos_indice)
+        # 计算start_end loss
+        start_end_loss = self.bce_loss(start_end, start_end_gt)
+
+        loss = (10*reg_us_loss + centerness_us_loss)/(1+num_pos_indice)  + cls_us_loss*50 + start_end_loss*10
+        return loss, (10*reg_us_loss/num_pos_indice, cls_us_loss*50, 1*centerness_us_loss/num_pos_indice, start_end_loss*10)
 
     def get_reg_gt(self, duration_list):
         '''

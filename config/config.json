@@ -12,7 +12,7 @@
     "step_size":5, 
     "step_gamma":0.2, 
 
-    "bg_threshold":0.3, 
+    "bg_threshold":0.02,  
     "nms_threshold":0.5
 }
 

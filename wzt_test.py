@@ -47,7 +47,7 @@ if __name__ == "__main__":
 
     # load_model
     weight_dir = config['checkpoint_dir']
-    weight_path = osp.join(weight_dir, 'iou_cheat2/epoch9_17.220708085397376_adam_param.pth.tar')
+    weight_path = osp.join(weight_dir, 'final_0/epoch5_3.262289514799812_adam_param.pth.tar')
     checkpoint = torch.load(weight_path)
 
     model.load_state_dict(checkpoint['state_dict'])
@@ -70,14 +70,16 @@ if __name__ == "__main__":
     mapping = get_origin_map()
     for features, cls_gt_list, duration_list, video_name_list in pbar:
         features = features.float().to(device)
-        cls_list, reg_list = model(features)
+        cls_list, reg_list, start_end = model(features)
         raw_result = {}
         raw_result['video_name'] = video_name_list[0]
+        start_end = start_end[0].detach().cpu().numpy()
 
         for layer_index in range(len(cls_list)):
             # get raw result in this layer
             cls_ds = cls_list[layer_index][0].detach().cpu().numpy()
             reg_ds = np.clip(reg_list[layer_index][0].detach().cpu().numpy(), 0, 1) 
+
             # cls_us = cls_list_final[layer_index][0].detach().cpu().numpy()
             # reg_us = np.clip(reg_list_final[layer_index][0].detach().cpu().numpy(), 0, 1) 
 
@@ -87,29 +89,41 @@ if __name__ == "__main__":
             fg_result = cls_result[200]
             start_bias = reg_ds[0]
             end_bias = reg_ds[1]
+
+            base_point = mapping[layer_index]
+            start = base_point - start_bias
+            start = np.clip(start, 0, 1)
+            end = base_point + end_bias
+            end = np.clip(end, 0, 1)
+
+            start_idx_floor = np.floor(start*100).astype(np.int)
+            start_idx_floor[start_idx_floor==100] = 99
+            start_score = start_end[0, start_idx_floor]
+            
+            end_idx_floor = np.floor(end*100).astype(np.int)
+            end_idx_floor[end_idx_floor==100] = 99
+            end_score = start_end[1, end_idx_floor]
+
+            fg_result = fg_result * np.sqrt(start_score * end_score)
 # 
             fg_indice = \
                 (np.max(reg_ds[:2, :], 0)> perceptive_fields[layer_index]) & \
                 (np.max(reg_ds[:2, :], 0)< perceptive_fields[layer_index+1]) &\
                 (fg_result > config['bg_threshold'])
-            # pdb.set_trace()
+
             fg_indice = fg_indice.nonzero()
-            # pdb.set_trace()
-            start_bias = start_bias[fg_indice]
-            end_bias = end_bias[fg_indice]
-            base_point = mapping[layer_index][fg_indice]
+
             positive_cls = cls_result[:200, fg_indice]
             if positive_cls.shape[-1]>0:
                 positive_cls = positive_cls.argmax(0)
-            # start_delta = reg_us[0, fg_indice[:, 0]]
-            # end_delta = reg_us[1, fg_indice[:, 0]]
-            start = base_point - start_bias# + start_delta
-            end = base_point + end_bias# + end_delta
-            pdb.set_trace()
+
+            start = start[fg_indice] # + start_delta
+            end = end[fg_indice] # + end_delta
             print('ground truth duration', duration_list)
             print('predicted durations: ', np.stack([start, end], axis=-1))
             print('ground_truth class', cls_gt_list)
             print('predicted class ', positive_cls)
+            print('predicted score ', fg_result[fg_indice])
             # pdb.set_trace()
         pdb.set_trace()
 

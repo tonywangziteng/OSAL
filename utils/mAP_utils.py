@@ -147,12 +147,14 @@ def get_preds_list(test_preds_json_path):
     # preds : [[video_name, start_time, end_time, score, class_idx], ...]
     f = json.load(open(test_preds_json_path, 'r'))
     preds = []
+    preds_names = []
     print("number of videos: ", len(f))
     for video in f:
         for k, v in video.items():
+            preds_names.append(k)
             for i in v:
                 preds.append(i)
-    return preds
+    return preds, preds_names
 
 def voc_ap(rec, prec, use_07_metric=False):
     """Compute VOC AP given precision and recall. If use_07_metric is true, uses
@@ -188,6 +190,7 @@ def voc_ap(rec, prec, use_07_metric=False):
 def voc_eval(classidx,
              gt_dict,
              test_preds,
+             test_name, 
              iou_thres=0.5,
              score_thres=0.01,
              use_07_metric=False):
@@ -199,7 +202,7 @@ def voc_eval(classidx,
     # extract gt objects for this class
     class_recs = {}
     npos = 0
-    for vid_name in gt_dict:
+    for vid_name in test_name:
         # pdb.set_trace()
         R = [obj for obj in gt_dict[vid_name] if obj[-1] == classidx]
         # if len(R) > 0:

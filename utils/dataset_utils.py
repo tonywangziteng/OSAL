@@ -82,6 +82,7 @@ class OsalDataset(Dataset):
         cls_gt = []
         boundary_list = []
         cls_list = []
+        start_end_score = np.zeros((2, 100))    # start end 得分
         for length in self.feature_len:
             # cls_gt.append(np.zeros((2, length))) # 多分类
             cls_gt.append(np.zeros((201, length)))
@@ -106,11 +107,10 @@ class OsalDataset(Dataset):
                 if is_above_layer.any():
                     anno_layer_index = i
 
-            # bg ground truth
-            # TODO: 分类正样本由IOU确定
+            # background and classification ground truth
             for i in range(len(self.index_map)):
-                # if i > anno_layer_index:
-                #     continue
+                if i > anno_layer_index:
+                    continue
                 # 多分类
                 # cls_gt[i][0, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = name_index
                 
@@ -126,25 +126,31 @@ class OsalDataset(Dataset):
                 #     (start_end.min(-1)>0)
                 # pos_indices = is_in_layer.nonzero()
 
-                start = self.origin_map[i] - self.perceptive_fields[i+1]
-                end = self.origin_map[i] + self.perceptive_fields[i+1]
-                start = np.clip(start, 0, 1)
-                end = np.clip(end, 0, 1)
-                ious = self.calc_iou(start, end, start_time, end_time)
-                # pdb.set_trace()
-                pos_indices = (ious>0.5).nonzero()[0]
+                # IOU 决定正样本
+                # start = self.origin_map[i] - self.perceptive_fields[i+1]
+                # end = self.origin_map[i] + self.perceptive_fields[i+1]
+                # start = np.clip(start, 0, 1)
+                # end = np.clip(end, 0, 1)
+                # ious = self.calc_iou(start, end, start_time, end_time)
+                # pos_indices = (ious>0.5).nonzero()[0]
 
-                for indice in pos_indices:
-                    cls_gt[i][name_index, indice] = 1
-                    cls_gt[i][200, indice] = 1
+                # for indice in pos_indices:
+                #     cls_gt[i][name_index, indice] = 1
+                #     cls_gt[i][200, indice] = 1
                 # pdb.set_trace()
-                # cls_gt[i][name_index, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = 1
-                # cls_gt[i][200, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = 1
-            
+                cls_gt[i][name_index, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = 1
+                cls_gt[i][200, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = 1
+            # pdb.set_trace()
+            # start and end score
+            std = (end_time - start_time) / 20. + 1e-6
+            amplitude_map = 1/(np.sqrt(2*np.pi)*std)
+            start_end_score[0] += self.gaussian_pdf(start_time, std) / amplitude_map
+            start_end_score[1] += self.gaussian_pdf(end_time, std) / amplitude_map
+
             boundary_list.append((start_time, end_time))
             cls_list.append(name_index)
         
-        return cls_gt, boundary_list, cls_list
+        return cls_gt, boundary_list, cls_list, start_end_score
 
     def allocate_layer(self, start_time, end_time):
         """
@@ -176,6 +182,12 @@ class OsalDataset(Dataset):
         # pdb.set_trace()
         return index_map
 
+    def gaussian_pdf(self, mean, std):
+        x = (np.arange(100)+0.5)/100.
+        std = std+1e-6
+        y = 1/(std * np.sqrt(2 * np.pi)) * np.exp( - (x - mean)**2 / (2 * std**2))
+        return y
+
     def get_origin_map(self):
         origin_map = []
         for feature_len in self.feature_len:
@@ -191,14 +203,14 @@ class OsalDataset(Dataset):
         feature = feature.values   
         
         # calculate ground truth
-        cls_gt, boundary_list, cls_list = self.calc_gt(video_name)
+        cls_gt, boundary_list, cls_list, start_end_score = self.calc_gt(video_name)
         # pdb.set_trace()
 
         # feature: batch_size * len(100) * feature_depth(400)
         if self.mode == 'testing':
             return feature, cls_gt, boundary_list, video_name, cls_list
         else:
-            return feature, cls_gt, boundary_list, video_name
+            return feature, cls_gt, boundary_list, video_name, start_end_score
 
     def __len__(self):
         return len(self.video_name_list) 
@@ -206,6 +218,13 @@ class OsalDataset(Dataset):
 def collate_function(batch):
     feature_list, cls_gt_list, duration_list = [], [], []
     video_name_list, cls_list = [], []
+    start_end_list = []
+    # 如果最后一个是list， 说明mode=='testing'
+    if isinstance(batch[0][-1], list):
+        mode = 'testing'
+    else:
+        mode = 'training'
+    # batch里面有batch_size个list
     for idx, element in enumerate(batch):
         feature_list.append(torch.Tensor(element[0]))
         # concat cls_gt
@@ -216,17 +235,24 @@ def collate_function(batch):
                 cls_gt_list[cls_idx].append(torch.Tensor(cls_gt))
         duration_list.append(element[2])
         video_name_list.append(element[3])
-        if len(element) == 5:
+        if mode == 'training':
+            start_end_list.append(torch.Tensor(element[4]))
+        else:
             cls_list.append(element[4])
     features = torch.stack(feature_list, 0)
     features = features.permute(0, 2, 1) # conv1 reaquires shape of (bs*channels*length)
     cls_gt = []
     for cls_gt_stacked in cls_gt_list:
         cls_gt.append(torch.stack(cls_gt_stacked, 0))
-    if len(cls_list) == 0:
-        return features, cls_gt, duration_list, video_name_list
-    else:
+    if mode=='testing':
         return features, cls_list, duration_list, video_name_list
+    else:
+        start_end = torch.stack(start_end_list, 0)
+        return features, cls_gt, duration_list, video_name_list, start_end
+    # if len(cls_list) == 0:
+    #     return features, cls_gt, duration_list, video_name_list
+    # else:
+    #     return features, cls_list, duration_list, video_name_list
 
 def get_dataloader(cfg, mode, batch_size, shuffle = True, num_worker = 4):
     r"""

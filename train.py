@@ -27,7 +27,7 @@ args = parser.parse_args()
 
 # GPU setting.
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # range GPU in order
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"            
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"            
 
 # Basic test.
 print("Pytorch's version is {}.".format(torch.__version__))
@@ -96,7 +96,7 @@ if __name__ == "__main__":
     clip_len_list = config['feature_lens']
     train_loss_list = []
     # loss_labels = ['background', 'down_sample_regression', 'down_sample_classification', 'down_sample_centerness']
-    loss_labels = ['down_sample_regression', 'down_sample_classification', 'down_sample_centerness']
+    loss_labels = ['regression', 'classification', 'centerness', 'start_end']
     losses_list = [[], [], [], []]
     valid_idx = []
     valid_loss = []
@@ -113,16 +113,23 @@ if __name__ == "__main__":
         neg_sample_ratio = 0.2
         pbar = tqdm(train_dataloader)
         cnt = 0
-        for raw_feature, cls_gt, duration_list, video_names in pbar:
+        for raw_feature, cls_gt, duration_list, video_names, start_end_gt in pbar:
             # cnt+=1
             # if cnt == 30:
             #     break
             
             optimizer.zero_grad()
             raw_feature = raw_feature.to(device)
-            cls_list_final, reg_list_final = model(raw_feature)
+            cls_list_final, reg_list_final, start_end = model(raw_feature)
 
-            loss, debug_loss = lossfn.calc_loss(cls_list_final, reg_list_final, cls_gt, duration_list, args.train_upsample, epoch)
+            loss, debug_loss = lossfn.calc_loss(
+                cls_list_final, 
+                reg_list_final, 
+                start_end, 
+                cls_gt, 
+                duration_list, 
+                start_end_gt, 
+            )
 
             loss.backward()
             optimizer.step() 
@@ -137,7 +144,7 @@ if __name__ == "__main__":
                 for index, label in enumerate(loss_labels):
                     new_loss_ = losses_list[index][-1]*0.9 + 0.1*debug_loss[index].detach().cpu().item()
                     losses_list[index].append(new_loss_)
-            pbar.set_description('loss={:.4f} reg={:4f}'.format(loss.detach().cpu().item(), debug_loss[1].detach().cpu().item()))
+            pbar.set_description('loss={:.4f} se={:4f}'.format(loss.detach().cpu().item(), debug_loss[-1].detach().cpu().item()))
 
             if len(train_loss_list)%10 == 0 and len(train_loss_list)!=0:
                 # plt.close()
@@ -163,17 +170,12 @@ if __name__ == "__main__":
             model.eval()
             pbar = tqdm(valid_dataloader)
             cnt = 0
-            for raw_feature, cls_gt, duration_list, video_names in pbar:
-                # cnt+=1
-                # # if cnt==1181:
-                # if cnt==11:
-                #     break
+            for raw_feature, cls_gt, duration_list, video_names, start_end_gt in pbar:
 
                 raw_feature = raw_feature.to(device)
-                cls_list_final, reg_list_final = model(raw_feature)
+                cls_list_final, reg_list_final, start_end = model(raw_feature)
 
-                loss, debug_loss = lossfn.calc_loss(cls_list_final, reg_list_final, cls_gt, duration_list, args.train_upsample, epoch)
-                # pdb.set_trace()
+                loss, debug_loss = lossfn.calc_loss(cls_list_final, reg_list_final, start_end, cls_gt, duration_list, start_end_gt)
                 loss_list.append(loss.detach().item())
 
                 for index, label in enumerate(loss_labels):

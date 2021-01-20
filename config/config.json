@@ -3,7 +3,7 @@
     "anno_path":"/home/e813/wzt_code/Pytorch-BMN/data/activitynet_annotations/anet_anno_action.json", 
     "video_info_path":"/home/e813/wzt_code/Pytorch-BMN/data/activitynet_annotations/video_info_new.csv", 
     "action_name_path":"/home/e813/wzt_code/Pytorch-BMN/data/activitynet_annotations/action_name.csv", 
-    "checkpoint_dir":"/home/e813/wzt_code/weights",
+    "checkpoint_dir":"./weights",
     "perceptive_fields":[-1, 7, 19, 43, 91, 1000], 
     "feature_lens":[50, 25, 13, 7, 4],
     "layer_weight":[16, 8, 4, 2, 1],

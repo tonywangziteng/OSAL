@@ -3,7 +3,7 @@ import torch.nn as nn
 import json, pdb, math
 import itertools
 from collections import OrderedDict
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter
 
 class Scaler(nn.Module):
     def __init__(self, init_value=1.0):
@@ -364,6 +364,8 @@ class OsalModel(nn.Module):
 
 if __name__ == '__main__':
     model = OsalModel()
+    print(model)
+    import pdb; pdb.set_trace()
     input_ = torch.ones((2, 400 ,100))
     writer = SummaryWriter("/home/e813/wzt_code/wzt_OSAL/model/result",comment='OSAL2')
     writer.add_graph(model, input_, True)

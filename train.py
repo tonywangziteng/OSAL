@@ -19,7 +19,6 @@ import itertools
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--train_from_checkpoint", action='store_true', default=False)
-parser.add_argument("--train_upsample",action='store_true', default=False)
 parser.add_argument("--epochs", type=int, default=10)
 parser.add_argument("--bs", type=int, default=16)
 parser.add_argument("--name", type=str, default='loss_down_2')
@@ -40,7 +39,6 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cp
 print("Currently using device: {}".format(device))
 
 if __name__ == "__main__":
-
     config_path = './config/config.json'
     try:
         f = open(config_path)
@@ -61,20 +59,8 @@ if __name__ == "__main__":
     
     model = OsalModel().to(device)
 
-    # optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config['learning_rate'])
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=config['step_size'], gamma=config['step_gamma'])
-    # model = nn.DataParallel(model).cuda()
-    lossfn = LossCalculator(config, device)
+    LossFn = LossCalculator(config, device)
 
-    # if not args.train_upsample:
-    #     optimizer = optim.Adam(model.get_ds_param(), lr=config['learning_rate'], weight_decay=config['weight_decay'])
-    # else:
-    #     weight_dir = config['checkpoint_dir']
-    #     weight_path = osp.join(weight_dir, 'down_sample_3/epoch9_15.118948492705318_adam_param.pth.tar')
-    #     checkpoint = torch.load(weight_path)
-    #     model.load_state_dict(checkpoint['state_dict'])
-    #     optimizer = optim.Adam(model.get_us_param(), lr=config['learning_rate'], weight_decay=config['weight_decay'])
-    #     model.up_sample_init()
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config['learning_rate'], weight_decay=config['weight_decay'])
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=config['step_size'], gamma=config['step_gamma'])
 
@@ -114,15 +100,12 @@ if __name__ == "__main__":
         pbar = tqdm(train_dataloader)
         cnt = 0
         for raw_feature, cls_gt, duration_list, video_names, start_end_gt in pbar:
-            # cnt+=1
-            # if cnt == 30:
-            #     break
             
             optimizer.zero_grad()
             raw_feature = raw_feature.to(device)
             cls_list_final, reg_list_final, start_end = model(raw_feature)
 
-            loss, debug_loss = lossfn.calc_loss(
+            loss, debug_loss = LossFn.calc_loss(
                 cls_list_final, 
                 reg_list_final, 
                 start_end, 
@@ -175,7 +158,7 @@ if __name__ == "__main__":
                 raw_feature = raw_feature.to(device)
                 cls_list_final, reg_list_final, start_end = model(raw_feature)
 
-                loss, debug_loss = lossfn.calc_loss(cls_list_final, reg_list_final, start_end, cls_gt, duration_list, start_end_gt)
+                loss, debug_loss = LossFn.calc_loss(cls_list_final, reg_list_final, start_end, cls_gt, duration_list, start_end_gt)
                 loss_list.append(loss.detach().item())
 
                 for index, label in enumerate(loss_labels):

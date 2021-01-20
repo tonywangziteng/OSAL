@@ -44,7 +44,8 @@ class OsalDataset(Dataset):
         # load dataset information
         all_info = pandas.read_csv(video_info_path)
         if self.mode == 'training':
-            self.data_info = all_info[all_info.subset.isin(['training', 'validation'])]
+            # self.data_info = all_info[all_info.subset.isin(['training', 'validation'])]
+            self.data_info = all_info[all_info.subset == 'training']
         elif self.mode == 'validation' or 'testing':
             self.data_info = all_info[all_info.subset == 'validation']
 
@@ -111,33 +112,7 @@ class OsalDataset(Dataset):
             for i in range(len(self.index_map)):
                 if i > anno_layer_index:
                     continue
-                # 多分类
-                # cls_gt[i][0, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = name_index
-                
-                # 二分类
 
-                # 在这一层并且在某一个动作片断中
-                # start = self.origin_map[i]-start_time
-                # end = end_time - self.origin_map[i]
-                # start_end = np.stack([start, end], -1)  
-                # is_in_layer = \
-                #     (start_end.max(-1)>self.perceptive_fields[i]) & \
-                #     (start_end.max(-1)<self.perceptive_fields[i+1]) & \
-                #     (start_end.min(-1)>0)
-                # pos_indices = is_in_layer.nonzero()
-
-                # IOU 决定正样本
-                # start = self.origin_map[i] - self.perceptive_fields[i+1]
-                # end = self.origin_map[i] + self.perceptive_fields[i+1]
-                # start = np.clip(start, 0, 1)
-                # end = np.clip(end, 0, 1)
-                # ious = self.calc_iou(start, end, start_time, end_time)
-                # pos_indices = (ious>0.5).nonzero()[0]
-
-                # for indice in pos_indices:
-                #     cls_gt[i][name_index, indice] = 1
-                #     cls_gt[i][200, indice] = 1
-                # pdb.set_trace()
                 cls_gt[i][name_index, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = 1
                 cls_gt[i][200, np.logical_and(self.origin_map[i]>start_time, self.origin_map[i]<end_time)] = 1
             # pdb.set_trace()
@@ -249,10 +224,7 @@ def collate_function(batch):
     else:
         start_end = torch.stack(start_end_list, 0)
         return features, cls_gt, duration_list, video_name_list, start_end
-    # if len(cls_list) == 0:
-    #     return features, cls_gt, duration_list, video_name_list
-    # else:
-    #     return features, cls_list, duration_list, video_name_list
+
 
 def get_dataloader(cfg, mode, batch_size, shuffle = True, num_worker = 4):
     r"""

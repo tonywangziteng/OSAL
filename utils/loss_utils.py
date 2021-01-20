@@ -72,8 +72,6 @@ class LossCalculator():
             reg_gt = reg_gt_list[layer_idx][batch_idx, :2, frame_idx]
             centerness_gt = reg_gt_list[layer_idx][batch_idx, 2, frame_idx]
 
-            # pdb.set_trace()
-
             intersect = torch.min(reg_result_us, reg_gt).sum()
             union = torch.max(reg_result_us, reg_gt).sum() + 1e-7
 

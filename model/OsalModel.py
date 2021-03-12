@@ -30,15 +30,11 @@ class DownSample(nn.Module):
                 'down_sample_{}'.format(idx),
                 nn.Sequential(
                     
-                    nn.Conv1d(in_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1),
-                    nn.BatchNorm1d(out_dim),
-                    nn.LeakyReLU(inplace=True),
+                    # nn.Conv1d(in_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1),
+                    # nn.BatchNorm1d(out_dim),
+                    # nn.LeakyReLU(inplace=True),
                     
-                    nn.Conv1d(out_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1),
-                    nn.BatchNorm1d(out_dim),
-                    nn.LeakyReLU(inplace=True),
-                    
-                    nn.Conv1d(out_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1, stride=2),
+                    nn.Conv1d(in_dim, out_dim, kernel_size=kernel_sizes[idx], padding=1, stride=2),
                     nn.BatchNorm1d(out_dim),
                     nn.LeakyReLU(inplace=True)
                 )
@@ -48,19 +44,18 @@ class DownSample(nn.Module):
 
         # he initialization
         for module in self.modules():
-            # pdb.set_trace()
             if isinstance(module, nn.Conv1d):
                 nn.init.kaiming_normal_(module.weight, mode='fan_in')
 
     def forward(self, feature):
         feature_list = []
         x = feature
-        # feature_list.append(x)
-        for name in self.submodule_names:
-            submodule = getattr(self, name)
-            x = submodule(x)
+
+        for layer_idx in range(5):
+            downsample_submodule = getattr(self, 'down_sample_{}'.format(layer_idx))
+            x = downsample_submodule(x)
             feature_list.append(x)
-        # pdb.set_trace()
+
         return feature_list
 
 class DownSampleHead(nn.Module):
@@ -190,13 +185,13 @@ class MergeModule(nn.Module):
     '''
     def __init__(self, in_dim, out_dim, out_padding):
         super(MergeModule, self).__init__()
-        self.origin_branch_1 = nn.Sequential(
-            nn.ConvTranspose1d(in_dim, out_dim, kernel_size=3, stride=1, padding=1, output_padding=0),
-            nn.BatchNorm1d(out_dim),
-            nn.LeakyReLU()
-        )
+        # self.origin_branch_1 = nn.Sequential(
+        #     nn.ConvTranspose1d(in_dim, out_dim, kernel_size=3, stride=1, padding=1, output_padding=0),
+        #     nn.BatchNorm1d(out_dim),
+        #     nn.LeakyReLU()
+        # )
         self.origin_branch_2 = nn.Sequential(
-            nn.ConvTranspose1d(out_dim, out_dim, kernel_size=3, stride=2, padding=1, output_padding=out_padding), 
+            nn.ConvTranspose1d(in_dim, out_dim, kernel_size=3, stride=2, padding=1, output_padding=out_padding), 
             nn.BatchNorm1d(out_dim),
             nn.Tanh()
         )
@@ -215,8 +210,8 @@ class MergeModule(nn.Module):
         
 
     def forward(self, origin_input, Unet_input):
-        origin_output = self.origin_branch_1(origin_input)
-        origin_output = self.origin_branch_2(origin_output)
+        # origin_output = self.origin_branch_1(origin_input)
+        origin_output = self.origin_branch_2(origin_input)
 
         Unet_output = self.Unet_branch(Unet_input)
         merged_input = Unet_output + origin_output
@@ -249,22 +244,14 @@ class UpSampleHead(nn.Module):
         # cls output is 201 dim, cls number + bg
         self.cls_head = nn.Sequential(
             nn.Conv1d(out_dim, out_dim, kernel_size=1, padding=0), 
-            nn.BatchNorm1d(out_dim), 
             nn.Tanh(), 
             nn.Conv1d(out_dim, 201, kernel_size=1, padding=0)
         )
         
-        # self.bg_head = nn.Sequential(
-        #     nn.Conv1d(out_dim, out_dim, kernel_size=1, padding=0), 
-        #     nn.BatchNorm1d(out_dim), 
-        #     nn.Tanh(), 
-        #     nn.Conv1d(out_dim, 1, kernel_size=1, padding=0)
-        # )
         
         # start, end , centerness
         self.reg_head = nn.Sequential(
             nn.Conv1d(out_dim, out_dim, kernel_size=1, padding=0), 
-            nn.BatchNorm1d(out_dim),
             nn.ReLU(), 
             nn.Conv1d(out_dim, 3, kernel_size=1, padding=0),
         )
@@ -289,10 +276,8 @@ class UpSampleHead(nn.Module):
 
             # x = self.cls_head(feature)
             x = torch.sigmoid(self.cls_head(feature)) 
-
-            # bg_result = torch.sigmoid(self.bg_head(feature))
-            # cls_list.append(torch.cat([x, bg_result], dim=1))
             reg_result = self.scales[l](torch.exp(self.reg_head(feature)))
+
             cls_list.append(x)
             reg_list.append(reg_result)
 
@@ -304,7 +289,6 @@ class StartEndHead(nn.Module):
         self.merge = MergeModule(512, 400, 1)
         self.head = nn.Sequential(
             nn.Conv1d(in_channels=400, out_channels=400, kernel_size=1, padding=0), 
-            nn.BatchNorm1d(400), 
             nn.Tanh(), 
             nn.Conv1d(in_channels=400, out_channels=2, kernel_size=1, padding=0),
             nn.Sigmoid()
@@ -333,7 +317,7 @@ class OsalModel(nn.Module):
         self.up_sample = UpSample(config)
         self.up_sample_head = UpSampleHead(config)
         self.start_end_head = StartEndHead(config)
-        print(self)
+        # print(self)
         # he initialization
         for module in self.modules():
             if isinstance(module, (nn.Conv1d, nn.ConvTranspose1d)):

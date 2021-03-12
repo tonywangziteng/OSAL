@@ -1,18 +1,24 @@
 {
-    "data_dir":"/home/e813/wzt_code/dataset/Activitynet/", 
-    "anno_path":"/home/e813/wzt_code/Pytorch-BMN/data/activitynet_annotations/anet_anno_action.json", 
-    "video_info_path":"/home/e813/wzt_code/Pytorch-BMN/data/activitynet_annotations/video_info_new.csv", 
-    "action_name_path":"/home/e813/wzt_code/Pytorch-BMN/data/activitynet_annotations/action_name.csv", 
+    "data_dir":"/media/F/wzt_code/dataset/Activitynet/", 
+    "anno_path":"/media/F/wzt_code/Pytorch-BMN/data/activitynet_annotations/anet_anno_action.json", 
+    "video_info_path":"/media/F/wzt_code/Pytorch-BMN/data/activitynet_annotations/video_info_new.csv", 
+    "action_name_path":"/media/F/wzt_code/Pytorch-BMN/data/activitynet_annotations/action_name.csv", 
     "checkpoint_dir":"./weights",
+    "thumos_dir":"/media/F/wzt_code/THUMOS_feat",
+    "thumos_flow_feature_file":"thumos14_i3d_features_flow_with_ucf101.hdf5",
+    "thumos_rgb_feature_file":"thumos14_i3d_features_rgb_with_ucf101.hdf5",
+    "thumos_class_label":"thumos14_class_label.txt",
+    "train_gt":"train_gt.json",
+    "test_gt":"test_gt.json",
     "perceptive_fields":[-1, 7, 19, 43, 91, 1000], 
     "feature_lens":[50, 25, 13, 7, 4],
     "layer_weight":[16, 8, 4, 2, 1],
     "learning_rate":5e-4, 
-    "weight_decay":1e-4, 
+    "weight_decay":1e-3, 
     "step_size":5, 
     "step_gamma":0.2, 
 
-    "bg_threshold":0.02,  
+    "bg_threshold":0.05,  
     "nms_threshold":0.5
 }
 

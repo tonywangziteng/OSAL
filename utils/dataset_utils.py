@@ -7,31 +7,33 @@ import numpy as np
 import json
 import tqdm
 import pdb
+import h5py
+
+
 # dataset: /media/e813/D/wzt/datasets/Activitynet/ 
 
 # duration_second, duration_frame, annotation:[{segment, label}], feature_frame
 
 class OsalDataset(Dataset):
-    r"""  
-    Arguments
-        :cfg: json config
-        :mode: 'training', 'validation', 'testing' | decide what the dataset is used for
-
-    create the dataset for train, evaluation, and test.
-    mainly aims at calculating ground truth target
-    """
     def __init__(
         self, 
         cfg, 
-        mode='training'
+        mode='training', 
+        dataset_name = "activityNet"
     ):
+        assert dataset_name in ["activityNet", "thumos"], "Wrong dataset name, please check settings"
+        if dataset_name == 'activityNet':
+            self.__init_activitinet(cfg, mode)
+        else:
+            self.__init_thumos(cfg, mode)
+        
+    def __init_activitinet(self, cfg, mode):
         data_dir = cfg['data_dir']
         anno_path = cfg['anno_path'] 
         video_info_path = cfg['video_info_path'] 
         action_name_path = cfg['action_name_path']
         self.perceptive_fields = np.array(cfg['perceptive_fields'])/200. 
         self.feature_len = cfg['feature_lens']
-        # self.perceptive_fields[-1] = 1.
 
         assert mode in ['training', 'validation', 'testing'], 'the mode should be training, validation or testing, instead of {}'.format(mode)
         self.mode = mode
@@ -44,7 +46,6 @@ class OsalDataset(Dataset):
         # load dataset information
         all_info = pandas.read_csv(video_info_path)
         if self.mode == 'training':
-            # self.data_info = all_info[all_info.subset.isin(['training', 'validation'])]
             self.data_info = all_info[all_info.subset == 'training']
         elif self.mode == 'validation' or 'testing':
             self.data_info = all_info[all_info.subset == 'validation']
@@ -90,6 +91,7 @@ class OsalDataset(Dataset):
 
         for anno in video_anno:
             action_name = anno['label']
+            # print(action_name)
             name_index = self.action_name.index(action_name)
             start_time = max((min(1, anno['segment'][0]/video_feature_second)), 0)
             end_time = max((min(1, anno['segment'][1]/video_feature_second)), 0)
@@ -174,6 +176,7 @@ class OsalDataset(Dataset):
 
     def __getitem__(self, index):
         video_name = self.video_name_list[index]
+        # print(video_name)
         feature = pandas.read_csv(osp.join(self.data_dir, video_name+'.csv'))
         feature = feature.values   
         
@@ -182,6 +185,7 @@ class OsalDataset(Dataset):
         # pdb.set_trace()
 
         # feature: batch_size * len(100) * feature_depth(400)
+
         if self.mode == 'testing':
             return feature, cls_gt, boundary_list, video_name, cls_list
         else:
@@ -233,20 +237,24 @@ def get_dataloader(cfg, mode, batch_size, shuffle = True, num_worker = 4):
     :cls_gt: (List(Tensor)) [batch_size*2*length] 
     :duration_list: (List(List(Tuple(start, end)))) 
     """
+    
     dataset = OsalDataset(
         cfg=cfg, 
         mode=mode, 
     )
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_function)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_function)
     return data_loader
 
         
 if __name__ == '__main__':
+    f = h5py.File('../THUMOS14_feat/thumos14_i3d_features_flow_with_ucf101.hdf5', 'r')
+    pdb.set_trace()
     try:
         f = open("/media/e813/D/wzt/codes/wzt_OSAL/config/config.json")
         overall_config = json.load(f)
     except IOError:
-        print('Model Building Error: errors occur when loading config file from '+config_path)
+        # print('Model Building Error: errors occur when loading config file from '+config_path)
+        raise BaseException
     train_loader = get_dataloader(overall_config, 'training', 2)
     for idx, (raw_feature, cls_gt, duration_list) in enumerate(train_loader):
         print(cls_gt)

@@ -62,7 +62,7 @@ def get_gt_dict(gt_path, class_map_dict):
     return gt_dict
 
 
-def get_gt_dict_2(gt_path, action_name_path):
+def get_gt_dict_2(gt_path, action_name_path, test_video_names):
     # generate action name dict
     # {'Applying sunscreen': 1, 'Arm wrestling': 2, ...}
     file = open(action_name_path, 'r')
@@ -82,7 +82,9 @@ def get_gt_dict_2(gt_path, action_name_path):
     # return: gt_dict = [{ 'vid_name': [[start_01, end_01, class_index], [start, end, class_index], ...] }, ...]
     f = json.load(open(gt_path, 'r'))
     gt_dict = {}
-    for video_name in f:
+    # pdb.set_trace()
+    # for video_name in f.keys():
+    for video_name in test_video_names:
         content = f[video_name]
         duration_sec = float(content["duration_second"])
         annotations = content["annotations"]
@@ -93,9 +95,8 @@ def get_gt_dict_2(gt_path, action_name_path):
             label = anno_each["label"]
             anno_list.append([float(time_sec[0]) / duration_sec, float(time_sec[1]) / duration_sec, action_name_dict[label]])
         gt_dict[video_name] = anno_list
-        # pdb.set_trace()
-    return gt_dict
 
+    return gt_dict
 
 
 def nms_detection(items, overlap=0.4):

@@ -21,7 +21,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--train_from_checkpoint", action='store_true', default=False)
 parser.add_argument("--epochs", type=int, default=10)
 parser.add_argument("--bs", type=int, default=16)
-parser.add_argument("--name", type=str, default='loss_down_2')
+parser.add_argument("--name", type=str, default='ship_connection')
 args = parser.parse_args()
 
 # GPU setting.
@@ -192,7 +192,7 @@ if __name__ == "__main__":
             checkpoint = {'state_dict': model.state_dict(),
                           'optimizer': optimizer.state_dict(),
                           'epoch': epoch}
-            torch.save(checkpoint, checkpoint_dir+'/epoch' + str(epoch) + '_{}'.format(np.array(loss_list).mean()) + '_adam_param.pth.tar')
+            torch.save(checkpoint, checkpoint_dir+'/epoch' + str(epoch) + '_{}'.format(np.array(loss_list).mean()) + '.pth.tar')
             valid_best_loss = epoch_valid_loss_
             
             # Save whole model.
